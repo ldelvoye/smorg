@@ -5,7 +5,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from textual.widgets import Input, Static, TabPane
+from textual.widgets import Input, Static, Tab, TabbedContent, TabPane, Tabs
+from textual.widgets._tabbed_content import ContentTab
+from textual.widgets._tabs import Underline
 
 from smorg.auth.login import LoginCancelled
 from smorg.auth.oauth import (
@@ -17,7 +19,7 @@ from smorg.auth.oauth import (
 )
 from smorg.auth.store import Credentials, CredentialStoreError, get_credentials, set_credentials
 from smorg.auth.token import TokenMethod
-from smorg.core.config import Config, TabConfig, load_config, save_config
+from smorg.core.config import Config, TabConfig, config_path, load_config, save_config
 from smorg.core.contract import AuthPath, Item, Manifest
 from smorg.core.removal import RemovalResult
 from smorg.core.state import SeenState
@@ -26,19 +28,21 @@ from smorg.shell.app import SmorgApp
 from smorg.shell.menu import (
     ADD_COMMAND,
     REMOVE_COMMAND,
+    REORDER_COMMAND,
     AddableIntegration,
     AddConnectionList,
     AddIntegrationList,
     ClientIdModal,
+    ConfiguredTab,
     ConnectModal,
     MenuCommands,
-    RemovableTab,
     RemoveConfirmModal,
     RemoveIntegrationList,
+    ReorderIntegrationList,
     TokenModal,
     addable_integrations,
+    configured_tabs,
     connect_screen_for,
-    removable_tabs,
 )
 from smorg.shell.menu.commands import _upgrade_failure_toast
 from smorg.shell.panel import Panel
@@ -185,18 +189,18 @@ def revocation(monkeypatch):
 def test_a_configured_known_integration_gets_a_labeled_row():
     save_config(Config(tabs=(TabConfig(integration="linear", connection="mcp"),)))
 
-    tabs = removable_tabs()
+    tabs = configured_tabs()
 
-    assert tabs == (RemovableTab("linear", "Linear", "mcp"),)
+    assert tabs == (ConfiguredTab("linear", "Linear", "mcp"),)
     assert tabs[0].label == "Linear (mcp)"
 
 
 def test_an_unknown_to_the_build_configured_id_still_gets_a_row():
     save_config(Config(tabs=(TabConfig(integration="jira"),)))
 
-    tabs = removable_tabs()
+    tabs = configured_tabs()
 
-    assert tabs == (RemovableTab("jira", "jira", None),)
+    assert tabs == (ConfiguredTab("jira", "jira", None),)
     assert tabs[0].label == "jira"
 
 
@@ -430,6 +434,192 @@ async def test_nothing_else_happens_while_a_removal_is_in_flight(monkeypatch):
         await pilot.pause()
 
     assert refreshed == ["alpha"]
+
+
+# --- The reorder flow ---
+
+
+def _header_ids(screen) -> list[str | None]:
+    tabs_list = screen.query_one(TabbedContent).query_one("#tabs-list")
+    return [tab.id for tab in tabs_list.query(Tab)]
+
+
+@pytest.mark.asyncio
+async def test_shift_down_then_enter_persists_the_new_order(registered):
+    registered(fake_manifest("widget"), fake_manifest("gadget"), fake_manifest("gizmo"))
+    save_config(
+        Config(
+            tabs=(
+                TabConfig(integration="widget", connection="mcp"),
+                TabConfig(integration="gadget", connection="mcp"),
+                TabConfig(integration="gizmo", connection="mcp"),
+            )
+        )
+    )
+
+    app = SmorgApp(tabs=(TabConfig("widget"), TabConfig("gadget"), TabConfig("gizmo")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.query_one(TabbedContent).active = "gadget"
+        await pilot.pause()
+        app.push_screen(ReorderIntegrationList())
+        await pilot.pause()
+
+        await pilot.press("shift+down")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert not isinstance(app.screen, ReorderIntegrationList)
+        assert app.tab_ids == ("gadget", "widget", "gizmo")
+        assert app.active_tab == "gadget"
+        default_screen = app.screen_stack[0]
+        assert _header_ids(default_screen) == [
+            ContentTab.add_prefix("gadget"),
+            ContentTab.add_prefix("widget"),
+            ContentTab.add_prefix("gizmo"),
+        ]
+
+    assert [tab.integration for tab in load_config().tabs] == ["gadget", "widget", "gizmo"]
+
+
+@pytest.mark.asyncio
+async def test_escape_after_a_move_leaves_config_and_tab_ids_untouched(registered):
+    registered(fake_manifest("widget"), fake_manifest("gadget"))
+    save_config(
+        Config(
+            tabs=(
+                TabConfig(integration="widget", connection="mcp"),
+                TabConfig(integration="gadget", connection="mcp"),
+            )
+        )
+    )
+    before_mtime = config_path().stat().st_mtime_ns
+
+    app = SmorgApp(tabs=(TabConfig("widget"), TabConfig("gadget")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(ReorderIntegrationList())
+        await pilot.pause()
+
+        await pilot.press("shift+down")
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert not isinstance(app.screen, ReorderIntegrationList)
+        assert app.tab_ids == ("widget", "gadget")
+
+    assert config_path().stat().st_mtime_ns == before_mtime
+    assert [tab.integration for tab in load_config().tabs] == ["widget", "gadget"]
+
+
+@pytest.mark.asyncio
+async def test_enter_with_no_move_dismisses_without_writing(registered):
+    registered(fake_manifest("widget"), fake_manifest("gadget"))
+    save_config(
+        Config(
+            tabs=(
+                TabConfig(integration="widget", connection="mcp"),
+                TabConfig(integration="gadget", connection="mcp"),
+            )
+        )
+    )
+    before_mtime = config_path().stat().st_mtime_ns
+
+    app = SmorgApp(tabs=(TabConfig("widget"), TabConfig("gadget")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(ReorderIntegrationList())
+        await pilot.pause()
+
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert not isinstance(app.screen, ReorderIntegrationList)
+        assert app.tab_ids == ("widget", "gadget")
+
+    assert config_path().stat().st_mtime_ns == before_mtime
+
+
+@pytest.mark.asyncio
+async def test_reorder_command_gated_on_at_least_two_configured_tabs(registered):
+    registered(fake_manifest("widget"), fake_manifest("gadget"))
+
+    app = SmorgApp(tabs=())
+    async with app.run_test() as pilot:
+        provider = MenuCommands(pilot.app.screen)
+        hits = [hit async for hit in provider.discover()]
+        assert REORDER_COMMAND not in [hit.text for hit in hits]
+
+        save_config(Config(tabs=(TabConfig(integration="widget", connection="mcp"),)))
+        hits = [hit async for hit in provider.discover()]
+        assert REORDER_COMMAND not in [hit.text for hit in hits]
+
+        save_config(
+            Config(
+                tabs=(
+                    TabConfig(integration="widget", connection="mcp"),
+                    TabConfig(integration="gadget", connection="mcp"),
+                )
+            )
+        )
+        hits = [hit async for hit in provider.discover()]
+
+    assert REORDER_COMMAND in [hit.text for hit in hits]
+
+
+@pytest.mark.asyncio
+async def test_the_reorder_screen_shows_its_keybinds(registered):
+    registered(fake_manifest("widget"), fake_manifest("gadget"))
+    save_config(
+        Config(
+            tabs=(
+                TabConfig(integration="widget", connection="mcp"),
+                TabConfig(integration="gadget", connection="mcp"),
+            )
+        )
+    )
+
+    app = SmorgApp(tabs=(TabConfig("widget"), TabConfig("gadget")))
+    async with app.run_test() as pilot:
+        app.push_screen(ReorderIntegrationList())
+        await pilot.pause()
+
+        hint = app.screen.query_one("#hint", Static)
+
+    assert hint.content == "⇧ + ↑/↓ move   enter save   esc cancel"
+
+
+@pytest.mark.asyncio
+async def test_apply_tab_order_merges_gracefully_when_ids_have_drifted():
+    """ordered_ids may no longer match tab_ids exactly: a screen open while the config changes
+    can carry an id that vanished, and miss one that was added."""
+    app = SmorgApp(tabs=(TabConfig("alpha"), TabConfig("beta"), TabConfig("gamma")))
+    async with app.run_test():
+        app.apply_tab_order(("gamma", "missing", "alpha"))
+
+        assert app.tab_ids == ("gamma", "alpha", "beta")
+
+
+@pytest.mark.asyncio
+async def test_reordering_moves_the_active_tab_underline_with_it():
+    """A reorder that moves the active tab's header must drag the underline along, not leave it
+    at the old x-range until the next tab switch."""
+    app = SmorgApp(tabs=(TabConfig("alpha"), TabConfig("beta")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        underline = app.query_one(Tabs).query_one(Underline)
+        before = (underline.highlight_start, underline.highlight_end)
+
+        app.apply_tab_order(("beta", "alpha"))
+        await pilot.pause()
+        await pilot.pause()
+
+        after = (underline.highlight_start, underline.highlight_end)
+        assert app.active_tab == "alpha"
+
+    assert after != before
 
 
 # --- addable_integrations() (a pure function; no palette/Provider plumbing) ---

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -12,47 +10,10 @@ from textual.widgets import OptionList, Static
 from textual.widgets.option_list import Option
 
 from smorg.auth.store import CredentialStoreError
-from smorg.core.config import ConfigError, TabConfig, load_config
-from smorg.core.registry import UnknownIntegration, get_integration
+from smorg.core.config import ConfigError
+from smorg.core.registry import UnknownIntegration
 from smorg.core.removal import RemovalResult, remove_integration
-from smorg.shell.menu.base import ManagementScreen, _selected
-
-
-@dataclass(frozen=True)
-class RemovableTab:
-    integration_id: str
-    display_name: str
-    connection_id: str | None
-
-    @property
-    def label(self) -> str:
-        if self.connection_id:
-            return f"{self.display_name} ({self.connection_id})"
-        return self.display_name
-
-
-def removable_tabs() -> tuple[RemovableTab, ...]:
-    """One entry per configured tab, known-to-this-build or not. A config that can't even be
-    read yields no commands rather than raising through the palette.
-    """
-    try:
-        config = load_config()
-    except ConfigError:
-        return ()
-    tabs = tuple(_describe_tab(tab) for tab in config.tabs)
-    return tabs
-
-
-def _describe_tab(tab: TabConfig) -> RemovableTab:
-    try:
-        integration = get_integration(tab.integration)
-    except UnknownIntegration:
-        return RemovableTab(tab.integration, tab.integration, tab.connection)
-    if tab.connection:
-        connection_id = tab.connection
-    else:
-        connection_id = integration.manifest.connection(None).id
-    return RemovableTab(tab.integration, integration.manifest.display_name, connection_id)
+from smorg.shell.menu.base import ManagementScreen, _selected, configured_tabs
 
 
 def _format_removal_toast(display_name: str, result: RemovalResult) -> str:
@@ -69,7 +30,7 @@ class RemoveIntegrationList(ManagementScreen):
     BINDINGS = [Binding("escape", "cancel", "cancel", show=False)]
 
     def compose(self) -> ComposeResult:
-        rows = (Option(tab.label, id=tab.integration_id) for tab in removable_tabs())
+        rows = (Option(tab.label, id=tab.integration_id) for tab in configured_tabs())
         options = OptionList(*rows)
         options.border_title = "remove integration"
         yield options
@@ -79,7 +40,7 @@ class RemoveIntegrationList(ManagementScreen):
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         event.stop()
-        chosen = _selected(removable_tabs(), event.option_id, lambda tab: tab.integration_id)
+        chosen = _selected(configured_tabs(), event.option_id, lambda tab: tab.integration_id)
         self.dismiss()
         if chosen is not None:
             self.app.push_screen(RemoveConfirmModal(chosen.integration_id, chosen.display_name))

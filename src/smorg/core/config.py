@@ -156,6 +156,18 @@ def add_tab(config: Config, tab: TabConfig) -> Config:
     return Config(tabs=config.tabs + (tab,))
 
 
+def reorder_tabs(config: Config, ordered_ids: tuple[str, ...]) -> Config:
+    """Sort config's tabs to match ordered_ids. Graceful when the two have drifted apart: a tab
+    whose integration is missing from ordered_ids keeps its relative order and goes last; an id
+    in ordered_ids with no matching tab is ignored.
+    """
+    by_integration = {tab.integration: tab for tab in config.tabs}
+    ordered = tuple(by_integration[tab_id] for tab_id in ordered_ids if tab_id in by_integration)
+    placed_ids = set(ordered_ids)
+    leftover = tuple(tab for tab in config.tabs if tab.integration not in placed_ids)
+    return Config(tabs=ordered + leftover)
+
+
 def tab_for(config: Config, integration_id: str) -> TabConfig | None:
     for tab in config.tabs:
         if tab.integration == integration_id:

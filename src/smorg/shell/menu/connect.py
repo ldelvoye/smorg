@@ -47,7 +47,7 @@ def addable_integrations() -> tuple[AddableIntegration, ...]:
     """Every registered manifest with no configured tab (one tab per integration; re-auth of a
     configured one stays `smorg connect`), each carrying its declared connection paths in
     declaration order. A config that can't even be read yields no commands, same as
-    removable_tabs.
+    configured_tabs.
     """
     try:
         config = load_config()

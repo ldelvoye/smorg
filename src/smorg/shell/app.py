@@ -14,7 +14,8 @@ from textual.app import App, ComposeResult, SystemCommand
 from textual.binding import Binding
 from textual.command import CommandPalette
 from textual.screen import Screen
-from textual.widgets import Footer, Static, TabbedContent, TabPane
+from textual.widgets import Footer, Static, TabbedContent, TabPane, Tabs
+from textual.widgets._tabbed_content import ContentTab
 
 from smorg import __version__, is_dev_build
 from smorg.auth.refresh import credentials_for
@@ -32,7 +33,8 @@ from smorg.core.keys import SHELL_KEYS
 from smorg.core.registry import UnknownIntegration, get_integration
 from smorg.core.state import SeenState
 from smorg.core.update import get_latest_version, is_newer
-from smorg.shell.help import HelpOverlay, Row, Section, merge_key_display, symbolize_key_display
+from smorg.shell.format import merge_key_display, symbolize_key_display
+from smorg.shell.help import HelpOverlay, Row, Section
 from smorg.shell.menu import ManagementScreen, MenuCommands
 from smorg.shell.panel import Panel, PanelState
 from smorg.shell.refresh_indicator import RefreshIndicator, RefreshStage
@@ -583,3 +585,24 @@ class SmorgApp(App[None]):
         self._fetched_at.pop(integration_id, None)
         await self.query_one(TabbedContent).remove_pane(integration_id)
         self._sync_tab_visibility()
+
+    def apply_tab_order(self, ordered_ids: tuple[str, ...]) -> None:
+        """Rearrange the header tabs to match ordered_ids, live. Tolerates the same drift as
+        core.config.reorder_tabs: an ordered_ids entry with no matching tab is dropped, and a
+        tab_ids entry missing from ordered_ids goes last, in its existing order.
+        """
+        placed = tuple(tab_id for tab_id in ordered_ids if tab_id in self.tab_ids)
+        placed_ids = set(placed)
+        leftover = tuple(tab_id for tab_id in self.tab_ids if tab_id not in placed_ids)
+        effective_order = placed + leftover
+        self.tab_ids = effective_order
+
+        tabs = self.query_one(TabbedContent).query_one(Tabs)
+        container = tabs.query_one("#tabs-list")
+        for index, tab_id in enumerate(effective_order):
+            header = container.query_one(f"#{ContentTab.add_prefix(tab_id)}")
+            container.move_child(header, before=index)
+        # move_child bypasses the Tabs mutations that normally re-place the active-tab underline,
+        # which would otherwise sit at its old x-range until the next tab switch. after_refresh:
+        # the headers' new regions only exist once the post-move layout has run.
+        tabs.call_after_refresh(tabs._highlight_active, False)
