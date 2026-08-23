@@ -14,7 +14,11 @@ from smorg.shell.panel import Panel
 
 
 class GitHubPanel(Panel):
-    can_focus = True
+    # A focusable host with no bindings of its own would be a dead stop in the tab-key focus
+    # chain — Textual bindings bubble up from the focused node, never down to it. Left False so
+    # focus_next/previous skip straight to the inbox; a later task makes it focusable only during
+    # a loading takeover.
+    can_focus = False
 
     def compose(self) -> ComposeResult:
         yield GitHubInbox(self)

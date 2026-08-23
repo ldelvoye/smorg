@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from textual.app import App, ComposeResult
+
 from smorg.core.state import SeenState
 from smorg.integrations.github.panel import GitHubPanel
 from smorg.integrations.github.source import Category, PullRequest
@@ -42,3 +44,17 @@ def panel_with(*pulls: PullRequest, seen: SeenState | None = None) -> GitHubPane
 
 def inbox_with(*pulls: PullRequest, seen: SeenState | None = None) -> GitHubInbox:
     return GitHubInbox(panel_with(*pulls, seen=seen))
+
+
+class PanelHarness(App[None]):
+    """The smallest app that can mount a `GitHubPanel` and hand it focus."""
+
+    def __init__(self, panel: GitHubPanel) -> None:
+        super().__init__()
+        self._panel = panel
+
+    def compose(self) -> ComposeResult:
+        yield self._panel
+
+    def on_mount(self) -> None:
+        self._panel.focus()
