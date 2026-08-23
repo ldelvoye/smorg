@@ -302,10 +302,7 @@ def _query_profile(credentials: Credentials, http: httpx.Client) -> Profile:
 
 
 def fetch(credentials: Credentials, http: httpx.Client) -> tuple[Item, ...]:
-    """Every open pull request that is yours or waiting on you, newest first, then the
-    viewer's profile. PyGithub brings its own transport for the pull requests; `http`
-    carries only the one profile GraphQL call.
-    """
+    """Every open pull request that is yours or waiting on you, newest first, then the profile."""
     found: dict[str, PullRequest] = {}
     # Closed on the way out: a client owns a connection pool, and a dashboard that refreshes
     # every time you look at it would otherwise leave one behind per refresh.
@@ -313,6 +310,8 @@ def fetch(credentials: Credentials, http: httpx.Client) -> tuple[Item, ...]:
         for category, qualifiers in QUERIES:
             for result in _search(client, f"{BASE_QUERY} {qualifiers}"):
                 pr = _pull_request_of(result, category)
+                # setdefault, not assignment: QUERIES is in precedence order, so the first
+                # category to claim a pull request keeps it.
                 found.setdefault(pr.id, pr)
     newest_first = sorted(found.values(), key=lambda pr: pr.updated_at, reverse=True)
     profile = _query_profile(credentials, http)
