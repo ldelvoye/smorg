@@ -31,6 +31,13 @@ def rendered(inbox: GitHubInbox, width: int = 100) -> str:
     return capture.get()
 
 
+# --- Getting back to the menu ---
+
+
+def test_the_inbox_says_how_to_get_back():
+    assert "‹ esc — menu" in "\n".join(inbox_with(pull(42)).content_lines())
+
+
 # --- Two columns, side by side ---
 
 

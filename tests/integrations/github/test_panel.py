@@ -5,7 +5,9 @@ from pathlib import Path
 
 from smorg.core.state import SeenState
 from smorg.integrations.github.source import PROFILE_ID, Category
+from smorg.integrations.github.views import GitHubView
 from smorg.integrations.github.views.inbox import GitHubInbox
+from smorg.integrations.github.views.menu import GitHubMenu
 
 from .helpers import PanelHarness, panel_with, profile_item, pull
 
@@ -46,12 +48,52 @@ def test_mark_all_seen_never_stores_the_profile(tmp_path, monkeypatch):
     assert PROFILE_ID not in saved.get("github", {})
 
 
+# --- Menu, the initial view, and navigation to the inbox ---
+
+
+def test_the_tab_opens_on_the_menu():
+    assert panel_with().active_view is GitHubView.MENU
+
+
+def test_help_bindings_follow_the_active_view():
+    panel = panel_with(pull(42))
+    assert list(panel.help_bindings()) == list(GitHubMenu.BINDINGS)
+    panel.active_view = GitHubView.INBOX
+    assert list(panel.help_bindings()) == list(GitHubInbox.BINDINGS)
+
+
+def test_the_menu_view_has_no_selection_for_mark_unseen():
+    panel = panel_with(pull(42))
+    assert panel.selected_item() is None
+
+
+async def test_enter_opens_the_inbox_and_escape_returns():
+    panel = panel_with(profile_item(), pull(42))
+    async with PanelHarness(panel).run_test() as pilot:
+        assert panel.query_one(GitHubMenu).display is True
+        assert panel.query_one(GitHubInbox).display is False
+
+        await pilot.press("enter")
+
+        assert panel.active_view is GitHubView.INBOX
+        assert panel.query_one(GitHubInbox).display is True
+        assert panel.query_one(GitHubMenu).display is False
+
+        await pilot.press("escape")
+
+        assert panel.active_view is GitHubView.MENU
+        assert panel.query_one(GitHubMenu).display is True
+
+
 # --- The host in a mounted tree ---
 
 
 async def test_a_mounted_host_forwards_focus_and_keys_to_the_inbox():
     panel = panel_with(pull(42), pull(43, Category.NEEDS_TEAM_REVIEW))
     async with PanelHarness(panel).run_test() as pilot:
+        panel.show_view(GitHubView.INBOX)
+        await pilot.pause()
+
         inbox = panel.query_one(GitHubInbox)
         assert panel.app.focused is inbox
 

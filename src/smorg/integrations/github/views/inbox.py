@@ -19,6 +19,7 @@ from textual.widgets import Static
 
 from smorg.core.contract import Item
 from smorg.integrations.github.source import Category, PullRequest, PullRequestDetail, Review
+from smorg.integrations.github.views import GitHubView
 from smorg.shell.format import age
 from smorg.shell.markdown import Markdown
 from smorg.shell.panel import PanelState
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
 _CHANGED_MARK = "●"
 _SELECTED_MARK = "▸"
 _EMPTY_SECTION = "  —"
+_BACK_HINT = "‹ esc — menu"
 
 _CHANGE_STYLE = "green"
 _COLUMN_TITLE_STYLE = "bold underline"
@@ -85,7 +87,9 @@ class _InboxBody(Static):
     def render(self) -> RenderResult:
         panel = self._inbox.panel
         if panel.state is PanelState.READY:
-            return self._inbox.render_content()
+            parts: list[RenderableType] = [Text(_BACK_HINT, style="dim"), Text()]
+            parts.append(self._inbox.render_content())
+            return Group(*parts)
         return panel.body_text()
 
 
@@ -99,6 +103,7 @@ class GitHubInbox(Vertical):
         Binding("enter", "toggle_detail", "view details", show=False),
         Binding("shift+up", "scroll_detail_up", "scroll details", show=False),
         Binding("shift+down", "scroll_detail_down", "scroll details", show=False),
+        Binding("escape", "back_to_menu", "back to menu", show=False),
     ]
     can_focus = True
 
@@ -167,9 +172,9 @@ class GitHubInbox(Vertical):
         return grid
 
     def content_lines(self) -> list[str]:
-        lines: list[str] = []
+        lines: list[str] = [_BACK_HINT, ""]
         for column, (title, _) in enumerate(_COLUMNS):
-            if lines:
+            if column > 0:
                 lines.append("")
             lines.append(title)
             for line in self._format_column_lines(column):
@@ -319,3 +324,6 @@ class GitHubInbox(Vertical):
 
     def action_scroll_detail_down(self) -> None:
         self.panel.action_scroll_detail_down()
+
+    def action_back_to_menu(self) -> None:
+        self.panel.show_view(GitHubView.MENU)

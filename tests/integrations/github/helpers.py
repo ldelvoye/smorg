@@ -6,10 +6,12 @@ from datetime import UTC, datetime
 
 from textual.app import App, ComposeResult
 
+from smorg.core.contract import Item
 from smorg.core.state import SeenState
 from smorg.integrations.github.panel import GitHubPanel
 from smorg.integrations.github.source import PROFILE_ID, Category, Profile, PullRequest
 from smorg.integrations.github.views.inbox import GitHubInbox
+from smorg.integrations.github.views.menu import GitHubMenu
 from smorg.shell.panel import PanelState
 
 NOW = datetime(2026, 8, 19, 12, 0, tzinfo=UTC)
@@ -56,10 +58,10 @@ def unavailable_profile_item() -> Profile:
     )
 
 
-def panel_with(*pulls: PullRequest, seen: SeenState | None = None) -> GitHubPanel:
+def panel_with(*items: Item, seen: SeenState | None = None) -> GitHubPanel:
     panel = GitHubPanel()
     panel.state = PanelState.READY
-    panel.items = pulls
+    panel.items = items
     panel.seen = seen or SeenState({})
     panel.integration_id = "github"
     return panel
@@ -67,6 +69,10 @@ def panel_with(*pulls: PullRequest, seen: SeenState | None = None) -> GitHubPane
 
 def inbox_with(*pulls: PullRequest, seen: SeenState | None = None) -> GitHubInbox:
     return GitHubInbox(panel_with(*pulls, seen=seen))
+
+
+def menu_with(*items: Item, seen: SeenState | None = None) -> GitHubMenu:
+    return GitHubMenu(panel_with(*items, seen=seen))
 
 
 class PanelHarness(App[None]):
