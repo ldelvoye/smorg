@@ -168,6 +168,11 @@ class SmorgApp(App[None]):
             return None
         return self.query_one(TabbedContent).active or None
 
+    @property
+    def palette(self) -> TerminalPalette | None:
+        """The learned terminal palette, when startup could query one."""
+        return self._palette
+
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         """Block every shell-level action while a management screen is on top."""
         if isinstance(self.screen, ManagementScreen):
@@ -289,7 +294,7 @@ class SmorgApp(App[None]):
             return None
         panel = self._panel_of(active)
         if panel is not None:
-            bindings = type(panel).BINDINGS
+            bindings = panel.help_bindings()
         else:
             bindings = ()
         binding_rows = _format_binding_rows(self, bindings)
