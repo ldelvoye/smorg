@@ -1,12 +1,13 @@
 """Tests for the GitHub host panel: view delegation, never the network."""
 
+import json
 from pathlib import Path
 
 from smorg.core.state import SeenState
-from smorg.integrations.github.source import Category
+from smorg.integrations.github.source import PROFILE_ID, Category
 from smorg.integrations.github.views.inbox import GitHubInbox
 
-from .helpers import PanelHarness, panel_with, pull
+from .helpers import PanelHarness, panel_with, profile_item, pull
 
 
 def test_the_panel_and_its_views_never_fetch():
@@ -32,6 +33,17 @@ def test_mark_all_seen_only_stores_pull_requests(tmp_path, monkeypatch):
     panel = panel_with(pull(42), seen=seen)
     panel.mark_all_seen()
     assert not seen.is_changed("github", pull(42))
+
+
+def test_mark_all_seen_never_stores_the_profile(tmp_path, monkeypatch):
+    monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path))
+    seen = SeenState({})
+    panel = panel_with(pull(42), seen=seen)
+    panel.items = panel.items + (profile_item(),)
+    panel.mark_all_seen()
+    assert not seen.is_changed("github", pull(42))
+    saved = json.loads((tmp_path / "state.json").read_text())
+    assert PROFILE_ID not in saved.get("github", {})
 
 
 # --- The host in a mounted tree ---

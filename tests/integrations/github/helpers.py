@@ -8,7 +8,7 @@ from textual.app import App, ComposeResult
 
 from smorg.core.state import SeenState
 from smorg.integrations.github.panel import GitHubPanel
-from smorg.integrations.github.source import Category, PullRequest
+from smorg.integrations.github.source import PROFILE_ID, Category, Profile, PullRequest
 from smorg.integrations.github.views.inbox import GitHubInbox
 from smorg.shell.panel import PanelState
 
@@ -30,6 +30,29 @@ def pull(
         repository=repository,
         author="octocat",
         category=category,
+    )
+
+
+def profile_item() -> Profile:
+    return Profile(
+        id=PROFILE_ID,
+        updated_at=datetime(1970, 1, 1, tzinfo=UTC),
+        url="https://github.com",
+        login="octocat",
+        total_contributions=204,
+        weeks=((0, 1, 2, 3, 4, 0, 0),),
+    )
+
+
+def unavailable_profile_item() -> Profile:
+    return Profile(
+        id=PROFILE_ID,
+        updated_at=datetime(1970, 1, 1, tzinfo=UTC),
+        url="https://github.com",
+        login="",
+        total_contributions=0,
+        weeks=(),
+        unavailable=True,
     )
 
 

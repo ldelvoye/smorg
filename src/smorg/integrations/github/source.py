@@ -57,6 +57,37 @@ REVIEW_LIMIT = 5
 REVIEWS_FETCH_LIMIT = 25
 BODY_LIMIT = 50_000
 
+GRAPHQL_URL = "https://api.github.com/graphql"
+PROFILE_ID = "github-profile"
+# A day the queried range does not cover; rendered blank, unlike a zero-contribution day.
+ABSENT_DAY = -1
+DAYS_PER_WEEK = 7
+
+# The profile is decoration, not state: a constant stamp keeps it inert to the seen-store.
+PROFILE_STAMP = datetime(1970, 1, 1, tzinfo=UTC)
+
+_CONTRIBUTION_LEVELS = {
+    "NONE": 0,
+    "FIRST_QUARTILE": 1,
+    "SECOND_QUARTILE": 2,
+    "THIRD_QUARTILE": 3,
+    "FOURTH_QUARTILE": 4,
+}
+
+_PROFILE_QUERY = """
+query {
+  viewer {
+    login
+    contributionsCollection {
+      contributionCalendar {
+        totalContributions
+        weeks { contributionDays { weekday contributionLevel } }
+      }
+    }
+  }
+}
+"""
+
 BASE_QUERY = "is:pr is:open archived:false"
 
 # First match wins: the broad queries sit last so each takes only what the ones above left,
@@ -86,6 +117,16 @@ class PullRequest(Item):
     repository: str
     author: str
     category: Category
+
+
+@dataclass(frozen=True)
+class Profile(Item):
+    """The signed-in user and their contribution calendar, or an unavailable placeholder."""
+
+    login: str
+    total_contributions: int
+    weeks: tuple[tuple[int, ...], ...]
+    unavailable: bool = False
 
 
 @dataclass(frozen=True)
@@ -171,11 +212,99 @@ def _client(credentials: Credentials, lazy: bool = False) -> Github:
     )
 
 
-def fetch(credentials: Credentials, http: httpx.Client) -> tuple[PullRequest, ...]:
-    """Every open pull request that is yours or waiting on you, newest first.
+def _unavailable_profile() -> Profile:
+    return Profile(
+        id=PROFILE_ID,
+        updated_at=PROFILE_STAMP,
+        url="https://github.com",
+        login="",
+        total_contributions=0,
+        weeks=(),
+        unavailable=True,
+    )
 
-    `http` goes unused: PyGithub brings its own transport, so the shell's shared httpx client
-    has nothing to do here.
+
+def _week_of(raw_week: object) -> tuple[int, ...] | None:
+    """Seven day levels, Sun-Sat; ABSENT_DAY where the range has no day. None if misshapen."""
+    if not isinstance(raw_week, dict):
+        return None
+    raw_days = raw_week.get("contributionDays")
+    if not isinstance(raw_days, list):
+        return None
+    levels = [ABSENT_DAY] * DAYS_PER_WEEK
+    for raw_day in raw_days:
+        if not isinstance(raw_day, dict):
+            return None
+        weekday = raw_day.get("weekday")
+        level_name = raw_day.get("contributionLevel")
+        if not isinstance(weekday, int) or not 0 <= weekday < DAYS_PER_WEEK:
+            return None
+        if not isinstance(level_name, str):
+            return None
+        level = _CONTRIBUTION_LEVELS.get(level_name)
+        if level is None:
+            return None
+        levels[weekday] = level
+    return tuple(levels)
+
+
+def _profile_of(payload: object) -> Profile:
+    """A Profile parsed from the GraphQL response body; unavailable on any shape surprise."""
+    if not isinstance(payload, dict):
+        return _unavailable_profile()
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return _unavailable_profile()
+    viewer = data.get("viewer")
+    if not isinstance(viewer, dict):
+        return _unavailable_profile()
+    login = viewer.get("login")
+    collection = viewer.get("contributionsCollection")
+    if not isinstance(login, str) or not isinstance(collection, dict):
+        return _unavailable_profile()
+    calendar = collection.get("contributionCalendar")
+    if not isinstance(calendar, dict):
+        return _unavailable_profile()
+    total = calendar.get("totalContributions")
+    raw_weeks = calendar.get("weeks")
+    if not isinstance(total, int) or not isinstance(raw_weeks, list):
+        return _unavailable_profile()
+    weeks: list[tuple[int, ...]] = []
+    for raw_week in raw_weeks:
+        week = _week_of(raw_week)
+        if week is None:
+            return _unavailable_profile()
+        weeks.append(week)
+    return Profile(
+        id=PROFILE_ID,
+        updated_at=PROFILE_STAMP,
+        url="https://github.com",
+        login=sanitize_line(login),
+        total_contributions=total,
+        weeks=tuple(weeks),
+    )
+
+
+def _query_profile(credentials: Credentials, http: httpx.Client) -> Profile:
+    """The viewer's profile over GraphQL; any failure degrades to unavailable, never raises."""
+    headers = {"Authorization": f"Bearer {credentials.access_token}"}
+    try:
+        response = http.post(GRAPHQL_URL, json={"query": _PROFILE_QUERY}, headers=headers)
+    except httpx.HTTPError:
+        return _unavailable_profile()
+    if response.status_code != 200:
+        return _unavailable_profile()
+    try:
+        payload = response.json()
+    except ValueError:
+        return _unavailable_profile()
+    return _profile_of(payload)
+
+
+def fetch(credentials: Credentials, http: httpx.Client) -> tuple[Item, ...]:
+    """Every open pull request that is yours or waiting on you, newest first, then the
+    viewer's profile. PyGithub brings its own transport for the pull requests; `http`
+    carries only the one profile GraphQL call.
     """
     found: dict[str, PullRequest] = {}
     # Closed on the way out: a client owns a connection pool, and a dashboard that refreshes
@@ -184,11 +313,12 @@ def fetch(credentials: Credentials, http: httpx.Client) -> tuple[PullRequest, ..
         for category, qualifiers in QUERIES:
             for result in _search(client, f"{BASE_QUERY} {qualifiers}"):
                 pr = _pull_request_of(result, category)
-                # setdefault, not assignment: QUERIES is in precedence order, so the first
-                # category to claim a pull request keeps it.
                 found.setdefault(pr.id, pr)
     newest_first = sorted(found.values(), key=lambda pr: pr.updated_at, reverse=True)
-    return tuple(newest_first)
+    profile = _query_profile(credentials, http)
+    items: list[Item] = list(newest_first)
+    items.append(profile)
+    return tuple(items)
 
 
 def _first[T: GithubObject](results: PaginatedList[T], limit: int) -> list[T]:
