@@ -1,4 +1,4 @@
-"""Fetch a snapshot of Spotify playback — now playing, the queue, and the last play — from the
+"""Fetch a snapshot of Spotify playback (now playing, the queue, and the last play) from the
 REST API and map it to one typed player state.
 """
 
