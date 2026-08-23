@@ -29,6 +29,10 @@
 ## General capabilities
 
 - Restricted write permissions
-- Re-order downloaded intgrations
 - Enable drop-in self-coded plugins
 - Homebrew download
+
+
+## Patches
+
+- Show update progress
