@@ -9,6 +9,7 @@ from smorg.core.config import (
     config_dir,
     config_path,
     load_config,
+    reorder_tabs,
     save_config,
 )
 
@@ -83,3 +84,51 @@ def test_a_tab_entry_with_no_connection_key_loads_as_none():
     save_config(Config(tabs=()))
     config_path().write_text('tabs = [ { integration = "linear" } ]')
     assert load_config().tabs[0].connection is None
+
+
+def test_reorder_tabs_applies_a_plain_permutation():
+    config = Config(
+        tabs=(
+            TabConfig(integration="linear"),
+            TabConfig(integration="sentry"),
+            TabConfig(integration="github"),
+        )
+    )
+
+    reordered = reorder_tabs(config, ("sentry", "github", "linear"))
+
+    assert [tab.integration for tab in reordered.tabs] == ["sentry", "github", "linear"]
+
+
+def test_reorder_tabs_appends_a_tab_missing_from_ordered_ids_last():
+    config = Config(
+        tabs=(
+            TabConfig(integration="linear"),
+            TabConfig(integration="sentry"),
+            TabConfig(integration="github"),
+        )
+    )
+
+    reordered = reorder_tabs(config, ("github", "linear"))
+
+    assert [tab.integration for tab in reordered.tabs] == ["github", "linear", "sentry"]
+
+
+def test_reorder_tabs_ignores_an_unknown_id_in_ordered_ids():
+    config = Config(
+        tabs=(TabConfig(integration="linear"), TabConfig(integration="sentry")),
+    )
+
+    reordered = reorder_tabs(config, ("sentry", "jira", "linear"))
+
+    assert [tab.integration for tab in reordered.tabs] == ["sentry", "linear"]
+
+
+def test_reorder_tabs_with_empty_ordered_ids_leaves_order_unchanged():
+    config = Config(
+        tabs=(TabConfig(integration="linear"), TabConfig(integration="sentry")),
+    )
+
+    reordered = reorder_tabs(config, ())
+
+    assert reordered.tabs == config.tabs

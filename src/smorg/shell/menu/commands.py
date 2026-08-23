@@ -1,4 +1,6 @@
-"""The menu's top-level commands: remove, add, and upgrade, gated by what currently applies."""
+"""The menu's top-level commands: remove, add, reorder, and upgrade, gated by what currently
+applies.
+"""
 
 from __future__ import annotations
 
@@ -9,11 +11,14 @@ from textual.command import DiscoveryHit, Hit, Hits, Provider
 
 from smorg.core.text import sanitize_line, truncate
 from smorg.core.update import upgrade_command
+from smorg.shell.menu.base import configured_tabs
 from smorg.shell.menu.connect import AddIntegrationList, addable_integrations
-from smorg.shell.menu.remove import RemoveIntegrationList, removable_tabs
+from smorg.shell.menu.remove import RemoveIntegrationList
+from smorg.shell.menu.reorder import ReorderIntegrationList
 
 REMOVE_COMMAND = "Remove integration"
 ADD_COMMAND = "Add integration"
+REORDER_COMMAND = "Reorder integrations"
 
 
 def _upgrade_label(version: str) -> str:
@@ -53,17 +58,19 @@ class MenuCommands(Provider):
     """Top-level management commands for the menu."""
 
     async def discover(self) -> Hits:
-        if removable_tabs():
+        if configured_tabs():
             yield DiscoveryHit(REMOVE_COMMAND, self._open_remove_list)
         if addable_integrations():
             yield DiscoveryHit(ADD_COMMAND, self._open_add_list)
+        if len(configured_tabs()) >= 2:
+            yield DiscoveryHit(REORDER_COMMAND, self._open_reorder_list)
         available_update = self._available_update()
         if available_update is not None:
             yield DiscoveryHit(_upgrade_label(available_update), self._upgrade)
 
     async def search(self, query: str) -> Hits:
         matcher = self.matcher(query)
-        if removable_tabs():
+        if configured_tabs():
             score = matcher.match(REMOVE_COMMAND)
             if score > 0:
                 yield Hit(score, matcher.highlight(REMOVE_COMMAND), self._open_remove_list)
@@ -71,6 +78,10 @@ class MenuCommands(Provider):
             score = matcher.match(ADD_COMMAND)
             if score > 0:
                 yield Hit(score, matcher.highlight(ADD_COMMAND), self._open_add_list)
+        if len(configured_tabs()) >= 2:
+            score = matcher.match(REORDER_COMMAND)
+            if score > 0:
+                yield Hit(score, matcher.highlight(REORDER_COMMAND), self._open_reorder_list)
         available_update = self._available_update()
         if available_update is not None:
             label = _upgrade_label(available_update)
@@ -83,6 +94,9 @@ class MenuCommands(Provider):
 
     def _open_add_list(self) -> None:
         self.app.push_screen(AddIntegrationList())
+
+    def _open_reorder_list(self) -> None:
+        self.app.push_screen(ReorderIntegrationList())
 
     def _available_update(self) -> str | None:
         # Lazy import: at module scope this would cycle with app.py.

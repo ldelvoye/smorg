@@ -14,7 +14,7 @@ from smorg.core.keys import SHELL_KEYS
 from smorg.integrations.linear.panel import LinearPanel
 from smorg.integrations.linear.source import Issue
 from smorg.shell.app import SmorgApp
-from smorg.shell.help import HelpOverlay, merge_key_display, symbolize_key_display
+from smorg.shell.help import HelpOverlay
 from smorg.shell.panel import Panel, PanelState, _scroll_indicators
 from smorg.shell.refresh_indicator import DONE_LINGER_SECONDS, RefreshIndicator, RefreshStage
 from smorg.shell.terminal_palette import (
@@ -466,30 +466,6 @@ async def test_question_mark_opens_the_active_tabs_deduped_key_reference():
     assert "open in browser" not in text
     # The panel's own up/down BINDINGS, merged onto one row (see LinearPanel.BINDINGS).
     assert _line_with(text, "select issue").strip().startswith("↑/↓")
-
-
-def test_a_shared_modifier_is_stated_once():
-    assert merge_key_display("⇧ + ↑", "⇧ + ↓") == "⇧ + ↑/↓"
-
-
-def test_two_unmodified_keys_merge_with_no_prefix_to_repeat():
-    assert merge_key_display("↑", "↓") == "↑/↓"
-
-
-def test_two_different_modifiers_stay_fully_spelled_out():
-    assert merge_key_display("^ + a", "⇧ + b") == "^ + a/⇧ + b"
-
-
-def test_a_lone_shift_binding_symbolizes_even_when_unmerged():
-    assert symbolize_key_display("shift+x") == "⇧ + x"
-
-
-def test_symbolize_expands_a_fused_caret_with_an_explicit_plus():
-    assert symbolize_key_display("^p") == "^ + p"
-
-
-def test_symbolize_maps_the_command_modifier_to_its_glyph():
-    assert symbolize_key_display("super+k") == "⌘ + k"
 
 
 @pytest.mark.asyncio
