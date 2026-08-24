@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from urllib.parse import urlsplit
 
@@ -81,7 +81,7 @@ query {
     contributionsCollection {
       contributionCalendar {
         totalContributions
-        weeks { contributionDays { weekday contributionLevel } }
+        weeks { firstDay contributionDays { weekday contributionLevel } }
       }
     }
   }
@@ -120,12 +120,20 @@ class PullRequest(Item):
 
 
 @dataclass(frozen=True)
+class ContributionWeek:
+    """One week of the contribution calendar: its start date and seven day levels, Sun-Sat."""
+
+    first_day: date
+    levels: tuple[int, ...]
+
+
+@dataclass(frozen=True)
 class Profile(Item):
     """The signed-in user and their contribution calendar, or an unavailable placeholder."""
 
     login: str
     total_contributions: int
-    weeks: tuple[tuple[int, ...], ...]
+    weeks: tuple[ContributionWeek, ...]
     unavailable: bool = False
 
 
@@ -224,9 +232,18 @@ def _unavailable_profile() -> Profile:
     )
 
 
-def _week_of(raw_week: object) -> tuple[int, ...] | None:
-    """Seven day levels, Sun-Sat; ABSENT_DAY where the range has no day. None if misshapen."""
+def _week_of(raw_week: object) -> ContributionWeek | None:
+    """A week's start date and its seven day levels, Sun-Sat; ABSENT_DAY where the range has no
+    day. None if misshapen.
+    """
     if not isinstance(raw_week, dict):
+        return None
+    raw_first_day = raw_week.get("firstDay")
+    if not isinstance(raw_first_day, str):
+        return None
+    try:
+        first_day = date.fromisoformat(raw_first_day)
+    except ValueError:
         return None
     raw_days = raw_week.get("contributionDays")
     if not isinstance(raw_days, list):
@@ -245,7 +262,7 @@ def _week_of(raw_week: object) -> tuple[int, ...] | None:
         if level is None:
             return None
         levels[weekday] = level
-    return tuple(levels)
+    return ContributionWeek(first_day=first_day, levels=tuple(levels))
 
 
 def _profile_of(payload: object) -> Profile:
@@ -269,7 +286,7 @@ def _profile_of(payload: object) -> Profile:
     raw_weeks = calendar.get("weeks")
     if not isinstance(total, int) or not isinstance(raw_weeks, list):
         return _unavailable_profile()
-    weeks: list[tuple[int, ...]] = []
+    weeks: list[ContributionWeek] = []
     for raw_week in raw_weeks:
         week = _week_of(raw_week)
         if week is None:

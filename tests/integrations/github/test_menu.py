@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 from smorg.core.state import SeenState
 from smorg.integrations.github.panel import (
     _GREEN_RAMP_DARK,
     _GREEN_RAMP_LIGHT,
     _ramp_for_background,
 )
-from smorg.integrations.github.source import ABSENT_DAY, Category
-from smorg.integrations.github.views.menu import GitHubMenu, _fit_weeks, _format_graph_rows
+from smorg.integrations.github.source import ABSENT_DAY, Category, ContributionWeek
+from smorg.integrations.github.views.menu import (
+    _GUTTER_WIDTH,
+    GitHubMenu,
+    _fit_weeks,
+    _format_graph_rows,
+    _format_month_header,
+)
 
 from .helpers import menu_with, panel_with, profile_item, pull, unavailable_profile_item
 
@@ -59,22 +67,27 @@ def test_the_inbox_destination_is_listed_and_selected():
 # --- The contribution graph card ---
 
 RAMP = ("#006d32", "#26a641", "#39d353", "#7ee787")
+WEEK_START = date(2026, 8, 9)
 
 
 def test_levels_map_to_glyphs_and_ramp_colors():
-    rows = _format_graph_rows(((0, 1, 2, 3, 4, 0, ABSENT_DAY),), RAMP)
+    week = ContributionWeek(first_day=WEEK_START, levels=(0, 1, 2, 3, 4, 0, ABSENT_DAY))
+    rows = _format_graph_rows((week,), RAMP)
     assert len(rows) == 7
-    assert rows[0].plain.strip() == "·"  # level 0: dim dot
-    assert rows[1].plain.strip() == "▄"  # level 1+: block
-    assert str(rows[1].spans[0].style) == RAMP[0]
-    assert str(rows[2].spans[0].style) == RAMP[1]
-    assert str(rows[3].spans[0].style) == RAMP[2]
-    assert str(rows[4].spans[0].style) == RAMP[3]
-    assert rows[6].plain.strip() == ""  # absent day: blank
+    assert rows[0].plain[_GUTTER_WIDTH:].strip() == "·"  # level 0: dim dot
+    assert rows[1].plain[_GUTTER_WIDTH:].strip() == "▄"  # level 1+: block
+    assert str(rows[1].spans[1].style) == RAMP[0]
+    assert str(rows[2].spans[1].style) == RAMP[1]
+    assert str(rows[3].spans[1].style) == RAMP[2]
+    assert str(rows[4].spans[1].style) == RAMP[3]
+    assert rows[6].plain[_GUTTER_WIDTH:].strip() == ""  # absent day: blank
 
 
 def test_only_trailing_weeks_that_fit_are_shown():
-    weeks = tuple((index % 5, 0, 0, 0, 0, 0, 0) for index in range(53))
+    weeks = tuple(
+        ContributionWeek(first_day=WEEK_START, levels=(index % 5, 0, 0, 0, 0, 0, 0))
+        for index in range(53)
+    )
     fitted = _fit_weeks(weeks, available_width=20)
     assert len(fitted) == 10  # 2 cells per week column
     assert fitted == weeks[-10:]
@@ -85,11 +98,30 @@ def test_the_card_carries_the_contribution_count():
     assert "204 contributions in the last year" in "\n".join(menu.content_lines())
 
 
+def test_the_card_shows_day_and_month_labels():
+    menu = menu_with(profile_item())
+    text = "\n".join(menu.content_lines())
+    assert "Mon" in text
+    assert "Wed" in text
+    assert "Fri" in text
+    assert "Aug" in text  # profile_item's fixture week starts August 9th
+
+
 def test_an_unavailable_profile_replaces_the_card_with_one_line():
     menu = menu_with(unavailable_profile_item())
     text = "\n".join(menu.content_lines())
     assert "contribution graph unavailable with this token" in text
     assert "contributions in the last year" not in text
+
+
+def test_a_second_month_start_within_the_gap_is_skipped():
+    weeks = (
+        ContributionWeek(first_day=date(2026, 7, 26), levels=(0,) * 7),
+        ContributionWeek(first_day=date(2026, 8, 2), levels=(0,) * 7),
+    )
+    header = _format_month_header(weeks)
+    assert "Jul" in header.plain
+    assert "Aug" not in header.plain
 
 
 def test_the_ramp_follows_the_terminal_background():

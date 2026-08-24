@@ -8,7 +8,7 @@ for it.
 
 import json
 import urllib.parse
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import httpx
@@ -28,6 +28,7 @@ from smorg.integrations.github.source import (
     PROFILE_ID,
     QUERIES,
     Category,
+    ContributionWeek,
     Profile,
     PullRequest,
     fetch,
@@ -55,6 +56,7 @@ VIEWER = {
                     "totalContributions": 204,
                     "weeks": [
                         {
+                            "firstDay": "2026-08-09",
                             "contributionDays": [
                                 {"weekday": 0, "contributionLevel": "NONE"},
                                 {"weekday": 1, "contributionLevel": "FIRST_QUARTILE"},
@@ -63,12 +65,13 @@ VIEWER = {
                                 {"weekday": 4, "contributionLevel": "FOURTH_QUARTILE"},
                                 {"weekday": 5, "contributionLevel": "NONE"},
                                 {"weekday": 6, "contributionLevel": "NONE"},
-                            ]
+                            ],
                         },
                         {
+                            "firstDay": "2026-08-16",
                             "contributionDays": [
                                 {"weekday": 0, "contributionLevel": "FOURTH_QUARTILE"},
-                            ]
+                            ],
                         },
                     ],
                 }
@@ -444,9 +447,12 @@ def test_the_profile_arrives_last_with_parsed_weeks(github):
     assert profile.login == "octocat"
     assert profile.total_contributions == 204
     assert profile.unavailable is False
-    assert profile.weeks[0] == (0, 1, 2, 3, 4, 0, 0)
+    assert isinstance(profile.weeks[0], ContributionWeek)
+    assert profile.weeks[0].first_day == date(2026, 8, 9)
+    assert profile.weeks[0].levels == (0, 1, 2, 3, 4, 0, 0)
+    assert profile.weeks[1].first_day == date(2026, 8, 16)
     # The partial trailing week fills unqueried days with ABSENT_DAY.
-    assert profile.weeks[1] == (4, -1, -1, -1, -1, -1, -1)
+    assert profile.weeks[1].levels == (4, -1, -1, -1, -1, -1, -1)
 
 
 def test_a_failing_graphql_call_degrades_to_an_unavailable_profile(github):
@@ -469,6 +475,19 @@ def test_a_misshapen_graphql_payload_degrades_instead_of_raising(github):
     items = fetch(CREDENTIALS, graphql_http({"data": {"viewer": "what"}}))
 
     assert isinstance(items[-1], Profile) and items[-1].unavailable is True
+
+
+def test_a_misshapen_week_start_degrades_to_an_unavailable_profile(github):
+    """A parse failure in the calendar must not cost the pull-request half of the fetch."""
+    github.searching("user-review-requested:@me", [HELLO])
+    hostile = json.loads(json.dumps(VIEWER))
+    calendar = hostile["data"]["viewer"]["contributionsCollection"]["contributionCalendar"]
+    calendar["weeks"][0]["firstDay"] = 5
+
+    items = fetch(CREDENTIALS, graphql_http(hostile))
+
+    assert isinstance(items[-1], Profile) and items[-1].unavailable is True
+    assert [pull.id for pull in only_pull_requests(items)] == ["octocat/hello#42"]
 
 
 def test_the_profile_login_is_sanitized(github):

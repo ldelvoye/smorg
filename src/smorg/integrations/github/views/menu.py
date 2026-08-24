@@ -14,7 +14,7 @@ from textual.app import RenderResult
 from textual.binding import Binding
 from textual.widgets import Static
 
-from smorg.integrations.github.source import ABSENT_DAY, DAYS_PER_WEEK
+from smorg.integrations.github.source import ABSENT_DAY, DAYS_PER_WEEK, ContributionWeek
 from smorg.integrations.github.views import GitHubView
 from smorg.shell.panel import PanelState
 
@@ -30,8 +30,16 @@ _DESTINATIONS: tuple[tuple[str, GitHubView], ...] = (("inbox", GitHubView.INBOX)
 # Two glyph-and-space cells per graph week column.
 _CELL_WIDTH = 2
 _MINIMUM_WEEKS = 4
-# Card border + padding + centering margin, subtracted from the menu's width to fit the grid.
-_CARD_OVERHEAD = 8
+# Card border + padding + centering margin + the day-label gutter, subtracted from the menu's
+# width to fit the grid.
+_CARD_OVERHEAD = 12
+
+# The left-hand day-of-week gutter: 4 characters wide, a label on Mon/Wed/Fri, blank otherwise.
+_GUTTER_WIDTH = 4
+_DAY_LABELS: dict[int, str] = {1: "Mon ", 3: "Wed ", 5: "Fri "}
+
+# A month label is 3 characters ("Aug"); one column of headroom keeps adjacent labels legible.
+_MONTH_LABEL_GAP = 4
 
 
 def _format_welcome(login: str) -> Text:
@@ -74,23 +82,60 @@ def _format_day(level: int, ramp: tuple[str, str, str, str]) -> tuple[str, str |
     return "▄", ramp[level - 1]
 
 
+def _format_day_gutter(day_index: int) -> str:
+    """The 4-char left label for a graph row: Mon/Wed/Fri, blank on every other day."""
+    return _DAY_LABELS.get(day_index, " " * _GUTTER_WIDTH)
+
+
 def _format_graph_rows(
-    weeks: tuple[tuple[int, ...], ...], ramp: tuple[str, str, str, str]
+    weeks: tuple[ContributionWeek, ...], ramp: tuple[str, str, str, str]
 ) -> list[Text]:
     rows: list[Text] = []
     for day_index in range(DAYS_PER_WEEK):
         row = Text()
+        row.append(_format_day_gutter(day_index), style="dim")
         for week in weeks:
-            glyph, style = _format_day(week[day_index], ramp)
+            glyph, style = _format_day(week.levels[day_index], ramp)
             row.append(glyph, style=style)
             row.append(" ")
         rows.append(row)
     return rows
 
 
+def _format_month_header(weeks: tuple[ContributionWeek, ...]) -> Text:
+    """One dim row above the grid: each visible week's month abbreviation where it starts a new
+    month, skipping a label that would overlap the one already placed.
+    """
+    width = _CELL_WIDTH * len(weeks)
+    cells = [" "] * width
+    previous_placed_offset: int | None = None
+    for week_index, week in enumerate(weeks):
+        if week_index == 0:
+            is_new_month = True
+        else:
+            is_new_month = week.first_day.month != weeks[week_index - 1].first_day.month
+        if not is_new_month:
+            continue
+        offset = _CELL_WIDTH * week_index
+        if previous_placed_offset is not None:
+            minimum_offset = previous_placed_offset + _MONTH_LABEL_GAP
+            if offset < minimum_offset:
+                continue
+        label = week.first_day.strftime("%b")
+        for label_index, character in enumerate(label):
+            position = offset + label_index
+            if position < width:
+                cells[position] = character
+        previous_placed_offset = offset
+    row = Text()
+    row.append(" " * _GUTTER_WIDTH, style="dim")
+    row.append("".join(cells), style="dim")
+    return row
+
+
 def _fit_weeks(
-    weeks: tuple[tuple[int, ...], ...], available_width: int
-) -> tuple[tuple[int, ...], ...]:
+    weeks: tuple[ContributionWeek, ...], available_width: int
+) -> tuple[ContributionWeek, ...]:
     columns_that_fit = max(1, available_width // _CELL_WIDTH)
     return weeks[-columns_that_fit:]
 
@@ -138,7 +183,8 @@ class GitHubMenu(Static):
             return Text("contribution graph unavailable with this token", style="dim")
         usable_width = max(_CELL_WIDTH * _MINIMUM_WEEKS, self.size.width - _CARD_OVERHEAD)
         shown = _fit_weeks(profile.weeks, usable_width)
-        grid = Group(*_format_graph_rows(shown, self.panel.green_ramp()))
+        rows = [_format_month_header(shown), *_format_graph_rows(shown, self.panel.green_ramp())]
+        grid = Group(*rows)
         caption = f"{profile.total_contributions} contributions in the last year"
         return Card(
             grid,

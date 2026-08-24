@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from textual.app import App, ComposeResult
 
 from smorg.core.contract import Item
 from smorg.core.state import SeenState
 from smorg.integrations.github.panel import GitHubPanel
-from smorg.integrations.github.source import PROFILE_ID, Category, Profile, PullRequest
+from smorg.integrations.github.source import (
+    PROFILE_ID,
+    Category,
+    ContributionWeek,
+    Profile,
+    PullRequest,
+)
 from smorg.integrations.github.views.inbox import GitHubInbox
 from smorg.integrations.github.views.menu import GitHubMenu
 from smorg.shell.panel import PanelState
@@ -36,13 +42,18 @@ def pull(
 
 
 def profile_item() -> Profile:
+    # Two weeks, not one: a month header needs at least 4 columns to fit a full "Aug".
+    weeks = (
+        ContributionWeek(first_day=date(2026, 8, 9), levels=(0, 1, 2, 3, 4, 0, 0)),
+        ContributionWeek(first_day=date(2026, 8, 16), levels=(1, 0, 2, 0, 3, 0, 4)),
+    )
     return Profile(
         id=PROFILE_ID,
         updated_at=datetime(1970, 1, 1, tzinfo=UTC),
         url="https://github.com",
         login="octocat",
         total_contributions=204,
-        weeks=((0, 1, 2, 3, 4, 0, 0),),
+        weeks=weeks,
     )
 
 
