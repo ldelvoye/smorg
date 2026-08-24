@@ -12,8 +12,9 @@ from smorg.core.contract import Item
 from smorg.integrations.github.source import Profile, PullRequest
 from smorg.integrations.github.views import GitHubView
 from smorg.integrations.github.views.inbox import GitHubInbox
+from smorg.integrations.github.views.loading import GitHubLoading
 from smorg.integrations.github.views.menu import GitHubMenu
-from smorg.shell.panel import Panel
+from smorg.shell.panel import Panel, PanelState
 from smorg.shell.terminal_palette import TerminalPalette, relative_luminance
 
 _GREEN_RAMP_DARK = ("#006d32", "#26a641", "#39d353", "#7ee787")
@@ -29,7 +30,8 @@ def _ramp_for_background(background: tuple[int, int, int] | None) -> tuple[str, 
 
 
 class GitHubPanel(Panel):
-    # Focus lives on the views; a focusable host with no bindings would be a dead Tab stop.
+    # False by default: focus lives on the views once data lands. _sync_view_display flips this
+    # per-instance during LOADING, when the host itself takes focus for the takeover.
     can_focus = False
 
     def __init__(self) -> None:
@@ -37,6 +39,7 @@ class GitHubPanel(Panel):
         self.active_view = GitHubView.MENU
 
     def compose(self) -> ComposeResult:
+        yield GitHubLoading()
         yield GitHubMenu(self)
         yield GitHubInbox(self)
 
@@ -50,6 +53,8 @@ class GitHubPanel(Panel):
         self.refresh()
 
     def focus(self, scroll_visible: bool = True):
+        if self.state is PanelState.LOADING:
+            return super().focus(scroll_visible)
         self._active_view_widget().focus(scroll_visible)
         return self
 
@@ -59,8 +64,15 @@ class GitHubPanel(Panel):
         return self._inbox()
 
     def _sync_view_display(self) -> None:
-        self._menu().display = self.active_view is GitHubView.MENU
-        self._inbox().display = self.active_view is GitHubView.INBOX
+        is_loading = self.state is PanelState.LOADING
+        # Focusable only while loading: the host holds focus for the takeover, then hands it to
+        # the active view; focusable-with-no-bindings at any other time is a dead Tab stop.
+        self.can_focus = is_loading
+        self.query_one(GitHubLoading).display = is_loading
+        self._menu().display = not is_loading and self.active_view is GitHubView.MENU
+        self._inbox().display = not is_loading and self.active_view is GitHubView.INBOX
+        if not is_loading and self.has_focus:
+            self._active_view_widget().focus()
 
     def _menu(self) -> GitHubMenu:
         return self.query_one(GitHubMenu)
