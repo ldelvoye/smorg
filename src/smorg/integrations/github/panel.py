@@ -6,6 +6,7 @@ from collections.abc import Iterable
 
 from rich.console import RenderableType
 from textual.app import ComposeResult
+from textual.types import NoActiveAppError
 
 from smorg.core.contract import Item
 from smorg.integrations.github.source import Profile, PullRequest
@@ -13,13 +14,22 @@ from smorg.integrations.github.views import GitHubView
 from smorg.integrations.github.views.inbox import GitHubInbox
 from smorg.integrations.github.views.menu import GitHubMenu
 from smorg.shell.panel import Panel
+from smorg.shell.terminal_palette import TerminalPalette, relative_luminance
+
+_GREEN_RAMP_DARK = ("#0e4429", "#006d32", "#26a641", "#39d353")
+_GREEN_RAMP_LIGHT = ("#9be9a8", "#40c463", "#30a14e", "#216e39")
+
+
+def _ramp_for_background(background: tuple[int, int, int] | None) -> tuple[str, str, str, str]:
+    if background is None:
+        return _GREEN_RAMP_DARK
+    if relative_luminance(background) > 0.5:
+        return _GREEN_RAMP_LIGHT
+    return _GREEN_RAMP_DARK
 
 
 class GitHubPanel(Panel):
-    # A focusable host with no bindings of its own would be a dead stop in the tab-key focus
-    # chain — Textual bindings bubble up from the focused node, never down to it. Left False so
-    # focus_next/previous skip straight to the active view; a later task makes it focusable only
-    # during a loading takeover.
+    # Focus lives on the views; a focusable host with no bindings would be a dead Tab stop.
     can_focus = False
 
     def __init__(self) -> None:
@@ -63,7 +73,7 @@ class GitHubPanel(Panel):
     ):
         if self.is_mounted:
             self._sync_view_display()
-            self._menu().refresh()
+            self._menu().refresh(repaint=repaint, layout=layout)
         return super().refresh(*regions, repaint=repaint, layout=layout, recompose=recompose)
 
     def help_bindings(self) -> Iterable[object]:
@@ -80,6 +90,16 @@ class GitHubPanel(Panel):
             if isinstance(item, Profile):
                 return item
         return None
+
+    def green_ramp(self) -> tuple[str, str, str, str]:
+        """GitHub's contribution greens, picked to sit on this terminal's background."""
+        try:
+            palette = getattr(self.app, "palette", None)
+        except NoActiveAppError:
+            return _ramp_for_background(None)
+        if isinstance(palette, TerminalPalette):
+            return _ramp_for_background(palette.background)
+        return _ramp_for_background(None)
 
     def unseen_count(self) -> int:
         integration_id = self.integration_id

@@ -5,12 +5,16 @@ from __future__ import annotations
 import io
 from typing import TYPE_CHECKING
 
+from rich import box
 from rich.console import Console, Group, RenderableType
+from rich.panel import Panel as Card
 from rich.text import Text
+from textual import events
 from textual.app import RenderResult
 from textual.binding import Binding
 from textual.widgets import Static
 
+from smorg.integrations.github.source import ABSENT_DAY, DAYS_PER_WEEK
 from smorg.integrations.github.views import GitHubView
 from smorg.shell.panel import PanelState
 
@@ -22,6 +26,12 @@ _CHANGED_MARK = "●"
 _CHANGE_STYLE = "green"
 
 _DESTINATIONS: tuple[tuple[str, GitHubView], ...] = (("inbox", GitHubView.INBOX),)
+
+# Two glyph-and-space cells per graph week column.
+_CELL_WIDTH = 2
+_MINIMUM_WEEKS = 4
+# Card border + padding + centering margin, subtracted from the menu's width to fit the grid.
+_CARD_OVERHEAD = 8
 
 
 def _format_welcome(login: str) -> Text:
@@ -55,6 +65,36 @@ def _format_destination(label: str, selected: bool) -> Text:
     return line
 
 
+def _format_day(level: int, ramp: tuple[str, str, str, str]) -> tuple[str, str | None]:
+    """One day's glyph and style: blank for absent, dim dot for zero, a ramp green otherwise."""
+    if level == ABSENT_DAY:
+        return " ", None
+    if level == 0:
+        return "·", "dim"
+    return "■", ramp[level - 1]
+
+
+def _format_graph_rows(
+    weeks: tuple[tuple[int, ...], ...], ramp: tuple[str, str, str, str]
+) -> list[Text]:
+    rows: list[Text] = []
+    for day_index in range(DAYS_PER_WEEK):
+        row = Text()
+        for week in weeks:
+            glyph, style = _format_day(week[day_index], ramp)
+            row.append(glyph, style=style)
+            row.append(" ")
+        rows.append(row)
+    return rows
+
+
+def _fit_weeks(
+    weeks: tuple[tuple[int, ...], ...], available_width: int
+) -> tuple[tuple[int, ...], ...]:
+    columns_that_fit = max(1, available_width // _CELL_WIDTH)
+    return weeks[-columns_that_fit:]
+
+
 class GitHubMenu(Static):
     BINDINGS = [
         Binding("up", "previous_destination", "select destination", show=False),
@@ -86,9 +126,29 @@ class GitHubMenu(Static):
         parts: list[RenderableType] = [_format_welcome(login), Text()]
         parts.append(_format_updates(self.panel.unseen_count()))
         parts.append(Text())
+        parts.append(self._format_graph_card())
+        parts.append(Text())
         for index, (label, _) in enumerate(_DESTINATIONS):
             parts.append(_format_destination(label, index == self.destination_cursor))
         return Group(*parts)
+
+    def _format_graph_card(self) -> RenderableType:
+        profile = self.panel.profile()
+        if profile is None or profile.unavailable:
+            return Text("contribution graph unavailable with this token", style="dim")
+        usable_width = max(_CELL_WIDTH * _MINIMUM_WEEKS, self.size.width - _CARD_OVERHEAD)
+        shown = _fit_weeks(profile.weeks, usable_width)
+        grid = Group(*_format_graph_rows(shown, self.panel.green_ramp()))
+        caption = f"{profile.total_contributions} contributions in the last year"
+        return Card(
+            grid,
+            title=caption,
+            title_align="left",
+            box=box.ROUNDED,
+            border_style="dim",
+            expand=False,
+            padding=(0, 1),
+        )
 
     def content_lines(self) -> list[str]:
         """render_content flattened to plain text, so the two cannot drift apart."""
@@ -111,3 +171,7 @@ class GitHubMenu(Static):
     def action_open_destination(self) -> None:
         _, destination = _DESTINATIONS[self.destination_cursor]
         self.panel.show_view(destination)
+
+    def on_resize(self, event: events.Resize) -> None:
+        """Refit the graph card's week count to the menu's new width."""
+        self.refresh()
