@@ -1,4 +1,4 @@
-"""The inbox view: every pull request in one full-width list of two stacked bands —
+"""The inbox view: every pull request as a two-line cell in two stacked bands —
 
 - "review inbox" for what other people are waiting on you for
 - "your pull requests" for what you are waiting on other people for
@@ -11,7 +11,6 @@ import webbrowser
 from typing import TYPE_CHECKING
 
 from rich.console import Console, Group, RenderableType
-from rich.table import Table
 from rich.text import Text
 from textual.app import ComposeResult, RenderResult
 from textual.binding import Binding
@@ -20,7 +19,7 @@ from textual.widgets import Static
 
 from smorg.core.contract import Item
 from smorg.integrations.github.source import Category, PullRequest, PullRequestDetail, Review
-from smorg.integrations.github.views import CHANGE_STYLE, CHANGED_MARK, SELECTED_MARK, GitHubView
+from smorg.integrations.github.views import CHANGE_STYLE, CHANGED_MARK, GitHubView
 from smorg.shell.format import age
 from smorg.shell.markdown import Markdown
 from smorg.shell.panel import PanelState
@@ -32,6 +31,9 @@ _EMPTY_BAND = "all caught up"
 _BACK_HINT = "‹ esc — menu"
 
 _BAND_TITLE_STYLE = "bold underline"
+_BAR = "▎"
+_SELECTED_BAR_STYLE = "bold blue"
+_UNSELECTED_BAR_STYLE = "dim"
 _CATEGORY_STYLES = {
     Category.NEEDS_YOUR_REVIEW: "bold red",
     Category.NEEDS_TEAM_REVIEW: "bold",
@@ -164,12 +166,15 @@ class GitHubInbox(Vertical):
     def _bands(self) -> tuple[Band, ...]:
         return _bands_of(self.panel.pull_requests())
 
-    def selected_item(self) -> PullRequest | None:
-        ordered = _ordered(self._bands())
+    def _selected_in(self, bands: tuple[Band, ...]) -> PullRequest | None:
+        ordered = _ordered(bands)
         if not ordered:
             return None
         index = min(self.cursor, len(ordered) - 1)
         return ordered[index]
+
+    def selected_item(self) -> PullRequest | None:
+        return self._selected_in(self._bands())
 
     def selected_url(self) -> str | None:
         pr = self.selected_item()
@@ -180,9 +185,10 @@ class GitHubInbox(Vertical):
         return Group(Text(_BACK_HINT, style="dim"), Text(), self.render_content())
 
     def render_content(self) -> RenderableType:
-        selected = self.selected_item()
+        bands = self._bands()
+        selected = self._selected_in(bands)
         parts: list[RenderableType] = []
-        for title, sections in self._bands():
+        for title, sections in bands:
             if parts:
                 parts.append(Text())
             parts.append(Text(title, style=_BAND_TITLE_STYLE))
@@ -190,10 +196,14 @@ class GitHubInbox(Vertical):
             if not sections:
                 parts.append(Text(_EMPTY_BAND, style="dim"))
                 continue
-            for category, prs in sections:
+            for index, (category, prs) in enumerate(sections):
+                if index > 0:
+                    parts.append(Text())
                 heading = _format_heading(category, prs)
                 parts.append(Text(heading, style=_CATEGORY_STYLES[category]))
-                parts.append(self._format_rows(prs, selected))
+                parts.append(Text())
+                for pr in prs:
+                    parts.extend(self._format_cell(pr, pr is selected))
         return Group(*parts)
 
     def content_lines(self) -> list[str]:
@@ -203,35 +213,34 @@ class GitHubInbox(Vertical):
             console.print(self.render_view())
         return capture.get().splitlines()
 
-    def _format_rows(self, prs: tuple[PullRequest, ...], selected: PullRequest | None) -> Table:
-        grid = Table.grid(expand=True, padding=(0, 1))
-        grid.add_column()
-        grid.add_column(no_wrap=True)
-        grid.add_column(ratio=1, no_wrap=True, overflow="ellipsis")
-        grid.add_column(justify="right", no_wrap=True)
-        for pr in prs:
-            grid.add_row(*self._format_row(pr, pr is selected))
-        return grid
-
-    def _format_row(self, pr: PullRequest, selected: bool) -> tuple[Text, Text, Text, Text]:
-        marker = Text()
+    def _format_cell(self, pr: PullRequest, selected: bool) -> tuple[Text, Text]:
+        """A pull request's two lines: the marked title, then its dim reference · author · age."""
         if selected:
-            marker.append(SELECTED_MARK, style="bold")
+            bar_style = _SELECTED_BAR_STYLE
         else:
-            marker.append(" ")
-        marker.append(" ")
+            bar_style = _UNSELECTED_BAR_STYLE
+        head = Text()
+        head.append(_BAR, style=bar_style)
+        head.append(" ")
         changed = self.panel.seen.is_changed(self.panel.integration_id, pr)
         if changed:
-            marker.append(CHANGED_MARK, style=CHANGE_STYLE)
+            head.append(CHANGED_MARK, style=CHANGE_STYLE)
         else:
-            marker.append(" ")
-        reference = Text(f"{pr.repository}#{pr.number}", style="dim")
+            head.append(" ")
+        head.append(" ")
         if selected:
-            title = Text(pr.title, style="bold")
+            head.append(pr.title, style="bold")
         else:
-            title = Text(pr.title)
-        meta = Text(_format_meta(pr), style="dim")
-        return marker, reference, title, meta
+            head.append(pr.title)
+        head.no_wrap = True
+        head.overflow = "ellipsis"
+        meta = Text()
+        meta.append(_BAR, style=bar_style)
+        meta.append("   ")
+        meta.append(f"{pr.repository}#{pr.number} · {_format_meta(pr)}", style="dim")
+        meta.no_wrap = True
+        meta.overflow = "ellipsis"
+        return head, meta
 
     def render_detail(self, item: Item, detail: object) -> RenderableType:
         if not isinstance(detail, PullRequestDetail):

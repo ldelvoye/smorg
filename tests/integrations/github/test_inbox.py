@@ -58,24 +58,32 @@ def test_an_empty_band_reads_all_caught_up():
     assert remaining == ["all caught up"]
 
 
-def test_a_pull_request_is_drawn_under_the_category_the_source_gave_it():
+def test_a_fully_empty_inbox_reads_all_caught_up_in_both_bands():
+    lines = inbox_with().content_lines()
+
+    caught_up = [line for line in lines if line.strip() == "all caught up"]
+    assert len(caught_up) == 2
+
+
+def test_a_pull_request_is_a_two_line_cell_under_its_category():
     lines = inbox_with(pull(51, Category.DRAFT)).content_lines()
 
     heading = lines.index(f"{Category.DRAFT} (1)")
-    assert "#51" in lines[heading + 1]
+    assert "title of #51" in lines[heading + 2]
+    assert "octocat/hello#51" in lines[heading + 3]
 
 
-# --- Rows ---
+# --- Cells ---
 
 
-def test_a_row_names_the_repository_and_the_number():
+def test_a_cell_names_the_repository_and_the_number():
     """A review inbox spans repositories, so a bare number identifies nothing."""
     text = "\n".join(inbox_with(pull(7, repository="octocat/tools")).content_lines())
 
     assert "octocat/tools#7" in text
 
 
-def test_a_row_shows_the_author_and_the_age(monkeypatch):
+def test_a_cell_shows_the_author_and_the_age(monkeypatch):
     monkeypatch.setattr("smorg.shell.format.now", lambda: NOW + timedelta(hours=3))
 
     text = "\n".join(inbox_with(pull(42)).content_lines())
@@ -84,13 +92,21 @@ def test_a_row_shows_the_author_and_the_age(monkeypatch):
 
 
 def test_a_deleted_author_leaves_the_age_alone(monkeypatch):
-    """A deleted account has author ""; the row must not render a dangling separator."""
+    """A deleted account has author ""; the meta line must not render a dangling separator."""
     monkeypatch.setattr("smorg.shell.format.now", lambda: NOW + timedelta(hours=3))
 
     text = "\n".join(inbox_with(pull(42, author="")).content_lines())
 
-    assert "· 3h" not in text
-    assert "3h" in text
+    assert "octocat/hello#42 · 3h" in text
+    assert "· ·" not in text
+
+
+def test_every_cell_line_carries_the_accent_bar():
+    lines = inbox_with(pull(42)).content_lines()
+
+    cell_lines = [line for line in lines if "title of #42" in line or "octocat/hello#42" in line]
+    assert len(cell_lines) == 2
+    assert all(line.startswith("▎") for line in cell_lines)
 
 
 def test_a_changed_pull_request_is_marked_and_a_seen_one_is_not():
