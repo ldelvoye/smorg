@@ -1,16 +1,18 @@
-"""The inbox view: two columns —
+"""The inbox view: every pull request as a two-line cell inside its category's card —
 
-- one for what other people are waiting on you for
-- one for what you are waiting on other people for
+- "review inbox" for what other people are waiting on you for
+- "your pull requests" for what you are waiting on other people for
 """
 
 from __future__ import annotations
 
+import io
 import webbrowser
 from typing import TYPE_CHECKING
 
-from rich.console import Group, RenderableType
-from rich.table import Table
+from rich import box
+from rich.console import Console, Group, RenderableType
+from rich.panel import Panel as Card
 from rich.text import Text
 from textual.app import ComposeResult, RenderResult
 from textual.binding import Binding
@@ -19,7 +21,7 @@ from textual.widgets import Static
 
 from smorg.core.contract import Item
 from smorg.integrations.github.source import Category, PullRequest, PullRequestDetail, Review
-from smorg.integrations.github.views import GitHubView
+from smorg.integrations.github.views import CHANGE_STYLE, CHANGED_MARK, SELECTED_MARK, GitHubView
 from smorg.shell.format import age
 from smorg.shell.markdown import Markdown
 from smorg.shell.panel import PanelState
@@ -27,13 +29,10 @@ from smorg.shell.panel import PanelState
 if TYPE_CHECKING:
     from smorg.integrations.github.panel import GitHubPanel
 
-_CHANGED_MARK = "●"
-_SELECTED_MARK = "▸"
-_EMPTY_SECTION = "  —"
+_EMPTY_BAND = "all caught up"
 _BACK_HINT = "‹ esc — menu"
 
-_CHANGE_STYLE = "green"
-_COLUMN_TITLE_STYLE = "bold underline"
+_BAND_TITLE_STYLE = "bold underline"
 _CATEGORY_STYLES = {
     Category.NEEDS_YOUR_REVIEW: "bold red",
     Category.NEEDS_TEAM_REVIEW: "bold",
@@ -43,7 +42,7 @@ _CATEGORY_STYLES = {
     Category.READY_TO_MERGE: "bold green",
 }
 
-_COLUMNS: tuple[tuple[str, tuple[Category, ...]], ...] = (
+_BANDS: tuple[tuple[str, tuple[Category, ...]], ...] = (
     (
         "review inbox",
         (Category.NEEDS_YOUR_REVIEW, Category.NEEDS_TEAM_REVIEW),
@@ -55,11 +54,45 @@ _COLUMNS: tuple[tuple[str, tuple[Category, ...]], ...] = (
 )
 
 Section = tuple[Category, tuple[PullRequest, ...]]
+Band = tuple[str, tuple[Section, ...]]
+
+
+def _bands_of(pulls: tuple[PullRequest, ...]) -> tuple[Band, ...]:
+    """Both bands with only their non-empty categories, in display order."""
+    grouped: dict[Category, list[PullRequest]] = {}
+    for pr in pulls:
+        grouped.setdefault(pr.category, []).append(pr)
+    bands: list[Band] = []
+    for title, categories in _BANDS:
+        sections: list[Section] = []
+        for category in categories:
+            prs = grouped.get(category, [])
+            if prs:
+                sections.append((category, tuple(prs)))
+        bands.append((title, tuple(sections)))
+    return tuple(bands)
+
+
+def _ordered(bands: tuple[Band, ...]) -> tuple[PullRequest, ...]:
+    """Every shown pull request as one sequence, in the order the bands draw them."""
+    ordered: list[PullRequest] = []
+    for _, sections in bands:
+        for _, prs in sections:
+            ordered.extend(prs)
+    return tuple(ordered)
 
 
 def _format_heading(category: Category, prs: tuple[PullRequest, ...]) -> str:
     """NEEDS_YOUR_REVIEW and three pull requests -> "needs your review (3)" """
     return f"{category} ({len(prs)})"
+
+
+def _format_meta(pr: PullRequest) -> str:
+    """ "octocat · 3h", or the age alone for a deleted account."""
+    when = age(pr.updated_at)
+    if not pr.author:
+        return when
+    return f"{pr.author} · {when}"
 
 
 def _format_review_label(state: str) -> str:
@@ -72,24 +105,30 @@ def _format_hidden_reviews_line(hidden: int, lower_bound: bool) -> Text:
 
     (1, True) -> "… 1+ earlier reviews"
     """
-    noun = "review" if hidden == 1 and not lower_bound else "reviews"
-    count = f"{hidden}+" if lower_bound else str(hidden)
+    if hidden == 1 and not lower_bound:
+        noun = "review"
+    else:
+        noun = "reviews"
+    if lower_bound:
+        count = f"{hidden}+"
+    else:
+        count = str(hidden)
     return Text(f"… {count} earlier {noun}", style="dim")
 
 
 class _InboxBody(Static):
-    """Draws the inbox's columns and state text; owns no state of its own."""
+    """Draws the inbox's bands and state text; owns no state of its own."""
 
     def __init__(self, inbox: GitHubInbox) -> None:
+        # markup off: rows carry server-controlled text, so a hostile title can't style,
+        # hide, or garble the inbox via Rich markup.
         super().__init__(markup=False, id="body")
         self._inbox = inbox
 
     def render(self) -> RenderResult:
         panel = self._inbox.panel
         if panel.state is PanelState.READY:
-            parts: list[RenderableType] = [Text(_BACK_HINT, style="dim"), Text()]
-            parts.append(self._inbox.render_content())
-            return Group(*parts)
+            return self._inbox.render_view()
         return panel.body_text()
 
 
@@ -97,8 +136,6 @@ class GitHubInbox(Vertical):
     BINDINGS = [
         Binding("up", "cursor_up", "select pull request", show=False),
         Binding("down", "cursor_down", "select pull request", show=False),
-        Binding("left", "previous_column", "switch column", show=False),
-        Binding("right", "next_column", "switch column", show=False),
         Binding("o", "open_selected", "open in GitHub", show=False),
         Binding("enter", "toggle_detail", "view details", show=False),
         Binding("shift+up", "scroll_detail_up", "scroll details", show=False),
@@ -108,7 +145,10 @@ class GitHubInbox(Vertical):
     can_focus = True
 
     DEFAULT_CSS = """
-    GitHubInbox > #body { height: 1fr; }
+    GitHubInbox { align-horizontal: center; }
+    /* The cap keeps author · age near the titles on wide terminals; the centering
+     * places the capped body like the menu's composition. */
+    GitHubInbox > #body { height: 1fr; max-width: 120; }
     GitHubInbox > #detail {
         display: none;
         height: 60%;
@@ -122,115 +162,106 @@ class GitHubInbox(Vertical):
     def __init__(self, panel: GitHubPanel) -> None:
         super().__init__()
         self.panel = panel
-        self.column = 0
-        # One cursor per column, so switching back returns to where you were.
-        self.cursors = [0 for _ in _COLUMNS]
+        self.cursor = 0
 
     def compose(self) -> ComposeResult:
         yield _InboxBody(self)
         yield self.panel.build_detail_region()
 
-    def _sections(self, column: int) -> tuple[Section, ...]:
-        """This column's categories with their pull requests."""
-        _, categories = _COLUMNS[column]
-        grouped: dict[Category, list[PullRequest]] = {category: [] for category in categories}
-        for pr in self.panel.items:
-            if isinstance(pr, PullRequest) and pr.category in grouped:
-                grouped[pr.category].append(pr)
-        sections: list[Section] = []
-        for category in categories:
-            prs = tuple(grouped[category])
-            sections.append((category, prs))
-        return tuple(sections)
+    def _bands(self) -> tuple[Band, ...]:
+        return _bands_of(self.panel.pull_requests())
 
-    def _ordered(self, column: int) -> tuple[PullRequest, ...]:
-        """This column's pull requests as one ordered sequence (newest first)."""
-        ordered: list[PullRequest] = []
-        for _, prs in self._sections(column):
-            ordered.extend(prs)
-        return tuple(ordered)
-
-    def _clamped_cursor(self, column: int, row_count: int) -> int:
-        return min(self.cursors[column], row_count - 1)
-
-    def selected_item(self) -> PullRequest | None:
-        ordered = self._ordered(self.column)
+    def _selected_in(self, bands: tuple[Band, ...]) -> PullRequest | None:
+        ordered = _ordered(bands)
         if not ordered:
             return None
-        index = self._clamped_cursor(self.column, len(ordered))
+        index = min(self.cursor, len(ordered) - 1)
         return ordered[index]
+
+    def selected_item(self) -> PullRequest | None:
+        return self._selected_in(self._bands())
 
     def selected_url(self) -> str | None:
         pr = self.selected_item()
-        return pr.url if pr is not None else None
+        if pr is None:
+            return None
+        return pr.url
+
+    def render_view(self) -> RenderableType:
+        """The whole ready view: the back hint above the bands."""
+        return Group(Text(_BACK_HINT, style="dim"), Text(), self.render_content())
 
     def render_content(self) -> RenderableType:
-        grid = Table.grid(expand=True, padding=(0, 2))
-        for _ in _COLUMNS:
-            grid.add_column(ratio=1)
-        grid.add_row(*(self._format_column(column_index) for column_index in range(len(_COLUMNS))))
-        return grid
-
-    def content_lines(self) -> list[str]:
-        lines: list[str] = [_BACK_HINT, ""]
-        for column, (title, _) in enumerate(_COLUMNS):
-            if column > 0:
-                lines.append("")
-            lines.append(title)
-            for line in self._format_column_lines(column):
-                lines.append(line.plain)
-        return lines
-
-    def _format_column(self, column: int) -> RenderableType:
-        title, _ = _COLUMNS[column]
-        parts: list[RenderableType] = [Text(title, style=_COLUMN_TITLE_STYLE)]
-        parts.extend(self._format_column_lines(column))
+        bands = self._bands()
+        selected = self._selected_in(bands)
+        parts: list[RenderableType] = []
+        for title, sections in bands:
+            if parts:
+                parts.append(Text())
+            parts.append(Text(title, style=_BAND_TITLE_STYLE))
+            parts.append(Text())
+            if not sections:
+                parts.append(Text(_EMPTY_BAND, style="dim"))
+                continue
+            for index, (category, prs) in enumerate(sections):
+                if index > 0:
+                    parts.append(Text())
+                parts.append(self._format_section_card(category, prs, selected))
         return Group(*parts)
 
-    def _format_column_lines(self, column: int) -> list[Text]:
-        """Every line under a column's title, headings and rows alike, so the rendered view and
-        content_lines() cannot drift apart.
-        """
-        if column == self.column:
-            selected = self.selected_item()
-        else:
-            selected = None
-        lines: list[Text] = []
-        for category, prs in self._sections(column):
-            lines.append(Text())
-            lines.append(Text(_format_heading(category, prs), style=_CATEGORY_STYLES[category]))
-            if not prs:
-                lines.append(Text(_EMPTY_SECTION, style="dim"))
-            for pr in prs:
-                lines.append(self._format_row(pr, pr is selected))
-        return lines
+    def content_lines(self) -> list[str]:
+        """render_view flattened to plain text, so the two cannot drift apart."""
+        console = Console(width=80, file=io.StringIO(), force_terminal=False)
+        with console.capture() as capture:
+            console.print(self.render_view())
+        return capture.get().splitlines()
 
-    def _format_row(self, pr: PullRequest, selected: bool) -> Text:
+    def _format_section_card(
+        self, category: Category, prs: tuple[PullRequest, ...], selected: PullRequest | None
+    ) -> RenderableType:
+        lines: list[RenderableType] = []
+        for pr in prs:
+            if lines:
+                lines.append(Text())
+            head, meta = self._format_cell(pr, pr is selected)
+            lines.append(head)
+            lines.append(meta)
+        heading = Text(_format_heading(category, prs), style=_CATEGORY_STYLES[category])
+        return Card(
+            Group(*lines),
+            title=heading,
+            title_align="left",
+            box=box.ROUNDED,
+            border_style="dim",
+            padding=(0, 1),
+        )
+
+    def _format_cell(self, pr: PullRequest, selected: bool) -> tuple[Text, Text]:
+        """A pull request's two lines: the marked title, then its dim reference · author · age."""
+        head = Text()
         if selected:
-            row = Text(style="bold")
-            marker = f"{_SELECTED_MARK} "
+            head.append(SELECTED_MARK, style="bold")
         else:
-            row = Text()
-            marker = "  "
-        row.append(marker)
-
+            head.append(" ")
+        head.append(" ")
         changed = self.panel.seen.is_changed(self.panel.integration_id, pr)
         if changed:
-            mark_char = _CHANGED_MARK
-            mark_style = _CHANGE_STYLE
+            head.append(CHANGED_MARK, style=CHANGE_STYLE)
         else:
-            mark_char = " "
-            mark_style = None
-        row.append(mark_char, style=mark_style)
-        row.append(" ")
-        row.append(f"{pr.repository}#{pr.number}", style="dim")
-        row.append("  ")
-        row.append(pr.title)
-        # One row per pull request: a wrapped title spills into the next row's place and breaks
-        # a column that is already only half the screen wide. The full title is one "o" away.
-        row.no_wrap = True
-        row.overflow = "ellipsis"
-        return row
+            head.append(" ")
+        head.append(" ")
+        if selected:
+            head.append(pr.title, style="bold")
+        else:
+            head.append(pr.title)
+        head.no_wrap = True
+        head.overflow = "ellipsis"
+        meta = Text()
+        meta.append("    ")
+        meta.append(f"{pr.repository}#{pr.number} · {_format_meta(pr)}", style="dim")
+        meta.no_wrap = True
+        meta.overflow = "ellipsis"
+        return head, meta
 
     def render_detail(self, item: Item, detail: object) -> RenderableType:
         if not isinstance(detail, PullRequestDetail):
@@ -302,21 +333,11 @@ class GitHubInbox(Vertical):
         self._move(-1)
 
     def _move(self, offset: int) -> None:
-        ordered = self._ordered(self.column)
+        ordered = _ordered(self._bands())
         if not ordered:
             return
-        index = self._clamped_cursor(self.column, len(ordered))
-        self.cursors[self.column] = (index + offset) % len(ordered)
-        self.panel.refresh()
-
-    def action_previous_column(self) -> None:
-        self._switch_column(-1)
-
-    def action_next_column(self) -> None:
-        self._switch_column(1)
-
-    def _switch_column(self, offset: int) -> None:
-        self.column = (self.column + offset) % len(_COLUMNS)
+        index = min(self.cursor, len(ordered) - 1)
+        self.cursor = (index + offset) % len(ordered)
         self.panel.refresh()
 
     def action_scroll_detail_up(self) -> None:

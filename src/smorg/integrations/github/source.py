@@ -161,7 +161,9 @@ def _message_of(error: GithubException) -> str:
     if not isinstance(data, dict):
         return ""
     message = data.get("message")
-    return message if isinstance(message, str) else ""
+    if not isinstance(message, str):
+        return ""
+    return message
 
 
 def _translated(error: GithubException) -> IntegrationError:
@@ -426,10 +428,18 @@ def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> Pu
         all_reviews = [_review_of(raw) for raw in raw_reviews]
         oldest_first = sorted(all_reviews, key=_submitted_order)
         newest = oldest_first[-REVIEW_LIMIT:]
+        if pr.base:
+            base_ref = pr.base.ref
+        else:
+            base_ref = ""
+        if pr.head:
+            head_ref = pr.head.ref
+        else:
+            head_ref = ""
         return PullRequestDetail(
             body=_body_of(pr),
-            base=sanitize_line(pr.base.ref if pr.base else ""),
-            head=sanitize_line(pr.head.ref if pr.head else ""),
+            base=sanitize_line(base_ref),
+            head=sanitize_line(head_ref),
             reviews=tuple(newest),
             hidden_reviews=max(0, len(raw_reviews) - REVIEW_LIMIT),
             hidden_is_lower_bound=len(raw_reviews) >= REVIEWS_FETCH_LIMIT,

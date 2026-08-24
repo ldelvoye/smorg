@@ -16,15 +16,11 @@ from textual.binding import Binding
 from textual.widgets import Static
 
 from smorg.integrations.github.source import ABSENT_DAY, DAYS_PER_WEEK, ContributionWeek
-from smorg.integrations.github.views import GitHubView
+from smorg.integrations.github.views import CHANGE_STYLE, CHANGED_MARK, SELECTED_MARK, GitHubView
 from smorg.shell.panel import PanelState
 
 if TYPE_CHECKING:
     from smorg.integrations.github.panel import GitHubPanel
-
-_SELECTED_MARK = "▸"
-_CHANGED_MARK = "●"
-_CHANGE_STYLE = "green"
 
 _DESTINATIONS: tuple[tuple[str, GitHubView], ...] = (("pull requests", GitHubView.INBOX),)
 
@@ -60,7 +56,7 @@ def _format_updates(unseen_count: int) -> Text:
     else:
         noun = "updates"
     line = Text()
-    line.append(f"{_CHANGED_MARK} ", style=_CHANGE_STYLE)
+    line.append(f"{CHANGED_MARK} ", style=CHANGE_STYLE)
     line.append(f"{unseen_count} {noun} since you last looked")
     return line
 
@@ -68,7 +64,7 @@ def _format_updates(unseen_count: int) -> Text:
 def _format_destination(label: str, selected: bool) -> Text:
     line = Text()
     if selected:
-        line.append(f"{_SELECTED_MARK} ", style="bold")
+        line.append(f"{SELECTED_MARK} ", style="bold")
         line.append(label, style="bold")
         line.append("    ")
         line.append(f"{_ENTER_GLYPH} to open", style="dim")
