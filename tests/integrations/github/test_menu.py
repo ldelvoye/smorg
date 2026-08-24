@@ -65,7 +65,7 @@ def test_levels_map_to_glyphs_and_ramp_colors():
     rows = _format_graph_rows(((0, 1, 2, 3, 4, 0, ABSENT_DAY),), RAMP)
     assert len(rows) == 7
     assert rows[0].plain.strip() == "·"  # level 0: dim dot
-    assert rows[1].plain.strip() == "█"  # level 1+: block
+    assert rows[1].plain.strip() == "▄"  # level 1+: block
     assert str(rows[1].spans[0].style) == RAMP[0]
     assert str(rows[2].spans[0].style) == RAMP[1]
     assert str(rows[3].spans[0].style) == RAMP[2]

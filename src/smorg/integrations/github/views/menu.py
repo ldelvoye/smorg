@@ -71,7 +71,7 @@ def _format_day(level: int, ramp: tuple[str, str, str, str]) -> tuple[str, str |
         return " ", None
     if level == 0:
         return "·", "dim"
-    return "█", ramp[level - 1]
+    return "▄", ramp[level - 1]
 
 
 def _format_graph_rows(
