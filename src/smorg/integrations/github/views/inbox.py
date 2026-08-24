@@ -99,7 +99,7 @@ class GitHubInbox(Vertical):
         Binding("down", "cursor_down", "select pull request", show=False),
         Binding("left", "previous_column", "switch column", show=False),
         Binding("right", "next_column", "switch column", show=False),
-        Binding("o", "open_selected", "open in browser", show=False),
+        Binding("o", "open_selected", "open in GitHub", show=False),
         Binding("enter", "toggle_detail", "view details", show=False),
         Binding("shift+up", "scroll_detail_up", "scroll details", show=False),
         Binding("shift+down", "scroll_detail_down", "scroll details", show=False),

@@ -39,8 +39,9 @@ SHELL_KEYS = (
 # would rebind ("?") — the only such shell key, so the mapping is spelled out rather than derived.
 _MANIFEST_KEY_OVERRIDES = {"question_mark": "?"}
 
-# Every key the shell binds, plus escape (HelpOverlay's own dismiss key). A manifest binding one
-# of these would be silently ignored, so it is rejected outright instead.
+# Every key the shell binds, plus escape (HelpOverlay's own dismiss key). Reserved keys are
+# rejected for manifest actions so they cannot collide with the shell's keymap; panel/view
+# BINDINGS are not covered by this check.
 RESERVED_KEYS = frozenset(
     _MANIFEST_KEY_OVERRIDES.get(shell_key.key, shell_key.key) for shell_key in SHELL_KEYS
 ) | {"escape"}

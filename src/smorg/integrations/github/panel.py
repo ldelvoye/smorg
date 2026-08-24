@@ -64,7 +64,8 @@ class GitHubPanel(Panel):
 
     def _sync_view_display(self) -> None:
         is_loading = self.state is PanelState.LOADING
-        # Focusable only during the loading takeover; otherwise a bindingless focus stop.
+        # Focusable only during the loading takeover; at any other time it would sit in the tab
+        # order as a bindingless focus stop.
         self.can_focus = is_loading
         self.query_one(GitHubLoading).display = is_loading
         self._menu().display = not is_loading and self.active_view is GitHubView.MENU

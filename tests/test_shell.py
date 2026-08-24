@@ -11,6 +11,8 @@ from smorg.auth.store import Credentials
 from smorg.core.config import TabConfig
 from smorg.core.contract import AuthExpired, Item, Malformed, Unavailable
 from smorg.core.keys import SHELL_KEYS
+from smorg.integrations.github.panel import GitHubPanel
+from smorg.integrations.github.views import GitHubView
 from smorg.integrations.linear.panel import LinearPanel
 from smorg.integrations.linear.source import Issue
 from smorg.shell.app import SmorgApp
@@ -456,16 +458,51 @@ async def test_question_mark_opens_the_active_tabs_deduped_key_reference():
         text = app.screen.body_text()
 
     assert "linear" in text
-    # The manifest-declared action (Action(id="open", label="Open in Linear",
-    # key="o", ...) in linear/manifest.py) — rendered with its leading letter
-    # lowered to match the help overlay's convention, not a hardcoded string.
+    # LinearPanel's own "o" binding (action_open_selected) wins now — bindings take precedence
+    # over manifest actions — and its description was synced to "open in Linear" to match what
+    # the manifest action (Action(id="open", label="Open in Linear", key="o", ...) in
+    # linear/manifest.py) already said, so the row still reads the same either way.
     assert _line_with(text, "open in Linear").strip().startswith("o")
-    # LinearPanel also binds "o" (action_open_selected, label "open in
-    # browser") — the manifest's label wins, so the panel's own label for
-    # that key never shows up as a second row.
+    # The manifest's own action row for "o" is what gets shadowed now; no residual "open in
+    # browser" text (the panel's pre-sync description) ever shows up as a second row.
     assert "open in browser" not in text
     # The panel's own up/down BINDINGS, merged onto one row (see LinearPanel.BINDINGS).
     assert _line_with(text, "select issue").strip().startswith("↑/↓")
+
+
+@pytest.mark.asyncio
+async def test_the_active_views_own_binding_wins_over_the_manifest_action():
+    """GitHub's menu and inbox both bind "o" to a different description than the manifest
+    action (label "Open in GitHub") — proof that _help_tab_section reads the active view's own
+    binding rather than always falling back to the manifest, unlike linear above where the two
+    already happen to read the same.
+    """
+    app = SmorgApp(tabs=(TabConfig("github"),))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("?")
+        await pilot.pause()
+        assert isinstance(app.screen, HelpOverlay)
+        menu_text = app.screen.body_text()
+        await pilot.press("escape")
+        await pilot.pause()
+
+        panel = app._panel_of("github")
+        assert isinstance(panel, GitHubPanel)
+        panel.active_view = GitHubView.INBOX
+
+        await pilot.press("?")
+        await pilot.pause()
+        assert isinstance(app.screen, HelpOverlay)
+        inbox_text = app.screen.body_text()
+
+    # The menu's own "o" binding (GitHubMenu.BINDINGS) wins over the manifest action for the
+    # same key.
+    assert _line_with(menu_text, "open your profile in GitHub").strip().startswith("o")
+    assert "open in GitHub" not in menu_text
+    # The inbox's own "o" binding (GitHubInbox.BINDINGS) was synced to read the same text the
+    # manifest action already carried, so switching views changes which row wins.
+    assert _line_with(inbox_text, "open in GitHub").strip().startswith("o")
 
 
 @pytest.mark.asyncio

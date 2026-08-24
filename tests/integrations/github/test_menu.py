@@ -62,6 +62,7 @@ def test_the_pull_requests_destination_is_listed_and_selected():
     menu = menu_with(profile_item())
     lines = menu.content_lines()
     assert any("▸ pull requests" in line for line in lines)
+    assert any("⏎ to open" in line for line in lines)
 
 
 # --- Opening the signed-in user's GitHub profile ---
@@ -149,6 +150,21 @@ def test_a_second_month_start_within_the_gap_is_skipped():
     header = _format_month_header(weeks)
     assert "Jul" in header.plain
     assert "Aug" not in header.plain
+
+
+def test_a_month_label_that_would_clip_is_absent_not_truncated():
+    # Three weeks wide (width 6): "Jul" fits fully at offset 0. The last week starts a new
+    # month far enough past "Jul" to clear the collision gap, but "Aug" (3 chars) at offset 4
+    # would need 7 columns — one more than the header has.
+    weeks = (
+        ContributionWeek(first_day=date(2026, 7, 5), levels=(0,) * 7),
+        ContributionWeek(first_day=date(2026, 7, 12), levels=(0,) * 7),
+        ContributionWeek(first_day=date(2026, 8, 2), levels=(0,) * 7),
+    )
+    header = _format_month_header(weeks)
+    assert "Jul" in header.plain
+    assert "Aug" not in header.plain
+    assert "Au" not in header.plain  # a clipped label must not leave a truncated fragment
 
 
 def test_the_ramp_follows_the_terminal_background():

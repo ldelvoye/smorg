@@ -108,7 +108,7 @@ class SpotifyPanel(Panel):
     """
 
     BINDINGS = [
-        Binding("o", "open", "open in browser", show=False),
+        Binding("o", "open", "open in Spotify", show=False),
         Binding("p", "play_now", "play now", show=False),
         Binding("a", "add_to_queue", "add to queue", show=False),
     ]

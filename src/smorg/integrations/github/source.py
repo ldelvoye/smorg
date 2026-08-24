@@ -292,6 +292,8 @@ def _profile_of(payload: object) -> Profile:
         if week is None:
             return _unavailable_profile()
         weeks.append(week)
+    if not login.strip():
+        return _unavailable_profile()
     login_text = sanitize_line(login)
     profile_url = f"https://github.com/{login_text}"
     return Profile(

@@ -491,6 +491,18 @@ def test_a_misshapen_week_start_degrades_to_an_unavailable_profile(github):
     assert [pull.id for pull in only_pull_requests(items)] == ["octocat/hello#42"]
 
 
+def test_an_empty_login_degrades_to_an_unavailable_profile(github):
+    """No real login means no real "welcome back, (unspecified)" profile or profile URL."""
+    github.searching("user-review-requested:@me", [HELLO])
+    hostile = json.loads(json.dumps(VIEWER))
+    hostile["data"]["viewer"]["login"] = ""
+
+    items = fetch(CREDENTIALS, graphql_http(hostile))
+
+    assert isinstance(items[-1], Profile) and items[-1].unavailable is True
+    assert [pull.id for pull in only_pull_requests(items)] == ["octocat/hello#42"]
+
+
 def test_the_profile_login_is_sanitized(github):
     hostile = json.loads(json.dumps(VIEWER))
     hostile["data"]["viewer"]["login"] = "octo\x1b[31mcat"

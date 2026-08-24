@@ -42,6 +42,11 @@ _DAY_LABELS: dict[int, str] = {1: "Mon ", 3: "Wed ", 5: "Fri "}
 # A month label is 3 characters ("Aug"); one column of headroom keeps adjacent labels legible.
 _MONTH_LABEL_GAP = 4
 
+# The same "⏎" Textual's own key-display shows for enter elsewhere in the app (see
+# shell/format.py's symbolize_key_display, part of that display pipeline) — hardcoded here
+# since this hint is plain text, not a key binding routed through that pipeline.
+_ENTER_GLYPH = "⏎"
+
 
 def _format_welcome(login: str) -> Text:
     if login:
@@ -68,7 +73,7 @@ def _format_destination(label: str, selected: bool) -> Text:
         line.append(f"{_SELECTED_MARK} ", style="bold")
         line.append(label, style="bold")
         line.append("    ")
-        line.append("enter to open", style="dim")
+        line.append(f"{_ENTER_GLYPH} to open", style="dim")
     else:
         line.append(f"  {label}")
     return line
@@ -105,7 +110,7 @@ def _format_graph_rows(
 
 def _format_month_header(weeks: tuple[ContributionWeek, ...]) -> Text:
     """One dim row above the grid: each visible week's month abbreviation where it starts a new
-    month, skipping a label that would overlap the one already placed.
+    month, skipping a label that would overlap the one already placed or run past the right edge.
     """
     width = _CELL_WIDTH * len(weeks)
     cells = [" "] * width
@@ -123,10 +128,10 @@ def _format_month_header(weeks: tuple[ContributionWeek, ...]) -> Text:
             if offset < minimum_offset:
                 continue
         label = week.first_day.strftime("%b")
+        if offset + len(label) > width:
+            continue
         for label_index, character in enumerate(label):
-            position = offset + label_index
-            if position < width:
-                cells[position] = character
+            cells[offset + label_index] = character
         previous_placed_offset = offset
     row = Text()
     row.append(" " * _GUTTER_WIDTH, style="dim")
@@ -146,7 +151,7 @@ class GitHubMenu(Static):
         Binding("up", "previous_destination", "select destination", show=False),
         Binding("down", "next_destination", "select destination", show=False),
         Binding("enter", "open_destination", "open the selected view", show=False),
-        Binding("o", "open_profile", "open your GitHub profile", show=False),
+        Binding("o", "open_profile", "open your profile in GitHub", show=False),
     ]
     can_focus = True
 

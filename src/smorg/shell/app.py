@@ -304,10 +304,11 @@ class SmorgApp(App[None]):
             # _build_panel already put this tab in its own error state; there is no manifest to
             # draw actions from.
             action_rows = []
-        # A manifest action's label wins over a same-keyed panel binding.
-        action_keys = {key for key, _ in action_rows}
-        unshadowed_bindings = [row for row in binding_rows if row[0] not in action_keys]
-        rows = unshadowed_bindings + action_rows
+        # The active view's own binding description wins; a manifest action fills in a key the
+        # view does not bind.
+        binding_keys = {key for key, _ in binding_rows}
+        unshadowed_actions = [row for row in action_rows if row[0] not in binding_keys]
+        rows = binding_rows + unshadowed_actions
         return (active, rows)
 
     def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
