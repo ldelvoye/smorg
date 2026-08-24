@@ -26,5 +26,9 @@
     "ref": "tidy-loader",
     "label": "octocat:tidy-loader",
     "sha": "2222222222222222222222222222222222222222"
-  }
+  },
+  "issue_url": "https://api.github.com/repos/octocat/hello/issues/42",
+  "additions": 128,
+  "deletions": 41,
+  "changed_files": 6
 }

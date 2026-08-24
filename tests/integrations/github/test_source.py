@@ -23,7 +23,10 @@ from github.Requester import (
 from smorg.auth.store import Credentials
 from smorg.core.contract import AccessNotAllowed, AuthExpired, Malformed, Unavailable
 from smorg.integrations.github.source import (
+    ABSENT_COUNT,
     BASE_QUERY,
+    CHECK_RUNS_FETCH_LIMIT,
+    COMMENTS_FETCH_LIMIT,
     MAX_PER_QUERY,
     PROFILE_ID,
     QUERIES,
@@ -122,6 +125,60 @@ ITEM = PullRequest(
     author="octocat",
     category=Category.NEEDS_YOUR_REVIEW,
 )
+
+HEAD_SHA = "2222222222222222222222222222222222222222"
+
+CHECK_RUNS = {
+    "total_count": 3,
+    "check_runs": [
+        {"name": "acceptance", "status": "completed", "conclusion": "failure"},
+        {"name": "backend typing", "status": "completed", "conclusion": "success"},
+        {"name": "deploy", "status": "in_progress", "conclusion": None},
+    ],
+}
+
+STATUSES = {
+    "state": "failure",
+    "statuses": [{"context": "ci/legacy", "state": "failure"}],
+}
+
+COMMENTS = [
+    {
+        "user": {"login": "alice"},
+        "body": "Looks good but the retry cap seems low.",
+        "created_at": "2026-08-13T10:00:00Z",
+    },
+    {"user": {"login": "bob"}, "body": "Agreed.", "created_at": "2026-08-13T11:00:00Z"},
+]
+
+NO_RUNS = {"total_count": 0, "check_runs": []}
+NO_STATUSES = {"state": "pending", "statuses": []}
+
+
+def serving_detail(
+    github,
+    pull: dict | None = None,
+    reviews: list | None = None,
+    check_runs: dict | None = None,
+    status: dict | None = None,
+    comments: list | None = None,
+) -> None:
+    """Register every endpoint one fetch_detail call reads, defaulting to the quiet case."""
+    if pull is None:
+        pull = PULL
+    if reviews is None:
+        reviews = []
+    if check_runs is None:
+        check_runs = NO_RUNS
+    if status is None:
+        status = NO_STATUSES
+    if comments is None:
+        comments = []
+    github.serving("/repos/octocat/hello/pulls/42", pull)
+    github.serving("/repos/octocat/hello/pulls/42/reviews", reviews)
+    github.serving(f"/repos/octocat/hello/commits/{HEAD_SHA}/check-runs", check_runs)
+    github.serving(f"/repos/octocat/hello/commits/{HEAD_SHA}/status", status)
+    github.serving("/repos/octocat/hello/issues/42/comments", comments)
 
 
 class _Recorded(RequestsResponse):
@@ -512,12 +569,11 @@ def test_the_profile_login_is_sanitized(github):
     assert "\x1b" not in profile.login
 
 
-# --- The detail pane ---
+# --- The pull request detail ---
 
 
 def test_detail_carries_the_body_the_branches_and_the_reviews(github):
-    github.serving("/repos/octocat/hello/pulls/42", PULL)
-    github.serving("/repos/octocat/hello/pulls/42/reviews", REVIEWS)
+    serving_detail(github, reviews=REVIEWS)
 
     detail = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM)
 
@@ -532,23 +588,26 @@ def test_detail_costs_one_request_per_thing_it_shows(github):
     """The repository is addressed by name and never read, so it is not
     fetched — a detail pane that cost three requests to open would make the
     key that opens it feel like a page load."""
-    github.serving("/repos/octocat/hello/pulls/42", PULL)
-    github.serving("/repos/octocat/hello/pulls/42/reviews", REVIEWS)
+    serving_detail(github, reviews=REVIEWS)
 
     fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM)
 
-    assert sorted(github.paths) == [
-        "/repos/octocat/hello/pulls/42",
-        "/repos/octocat/hello/pulls/42/reviews",
-    ]
+    assert sorted(github.paths) == sorted(
+        [
+            "/repos/octocat/hello/pulls/42",
+            "/repos/octocat/hello/pulls/42/reviews",
+            f"/repos/octocat/hello/commits/{HEAD_SHA}/check-runs",
+            f"/repos/octocat/hello/commits/{HEAD_SHA}/status",
+            "/repos/octocat/hello/issues/42/comments",
+        ]
+    )
 
 
 def test_a_body_carrying_terminal_escapes_is_sanitised_without_losing_its_lines(github):
     """Dropping the escape byte is what makes the sequence inert; the "[31m"
     left behind is literal text a terminal draws rather than obeys. Newlines
     survive, since a description is rendered as markdown."""
-    github.serving("/repos/octocat/hello/pulls/42", PULL | {"body": "one\x1b[31m\ntwo\x00"})
-    github.serving("/repos/octocat/hello/pulls/42/reviews", [])
+    serving_detail(github, pull=PULL | {"body": "one\x1b[31m\ntwo\x00"})
 
     body = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM).body
 
@@ -558,15 +617,191 @@ def test_a_body_carrying_terminal_escapes_is_sanitised_without_losing_its_lines(
 
 
 def test_a_pull_request_with_no_body_reads_as_empty_not_missing(github):
-    github.serving("/repos/octocat/hello/pulls/42", PULL | {"body": None})
-    github.serving("/repos/octocat/hello/pulls/42/reviews", [])
+    serving_detail(github, pull=PULL | {"body": None})
 
     assert fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM).body == ""
 
 
 def test_a_detail_failure_is_an_integration_error(github):
+    serving_detail(github)
     github.serving("/repos/octocat/hello/pulls/42", {"message": "Bad credentials"}, status=401)
-    github.serving("/repos/octocat/hello/pulls/42/reviews", [])
 
     with pytest.raises(AuthExpired):
         fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM)
+
+
+def test_detail_carries_the_line_counts(github):
+    serving_detail(github)
+
+    detail = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM)
+
+    assert detail.additions == 128
+    assert detail.deletions == 41
+    assert detail.changed_files == 6
+
+
+def test_missing_line_counts_read_as_absent_not_zero(github):
+    hostile = PULL | {"additions": None, "deletions": "nan", "changed_files": None}
+    serving_detail(github, pull=hostile)
+
+    detail = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM)
+
+    assert detail.additions == ABSENT_COUNT
+    assert detail.deletions == ABSENT_COUNT
+    assert detail.changed_files == ABSENT_COUNT
+
+
+def test_checks_merge_runs_with_legacy_statuses(github):
+    serving_detail(github, check_runs=CHECK_RUNS, status=STATUSES)
+
+    checks = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM).checks
+
+    assert checks.available is True
+    assert checks.passed == 1
+    assert checks.failed == 2
+    assert checks.running == 1
+    assert checks.failed_names == ("acceptance", "ci/legacy")
+
+
+@pytest.mark.parametrize(
+    "conclusion,expect",
+    [
+        ("success", "passed"),
+        ("neutral", "passed"),
+        ("skipped", "passed"),
+        ("failure", "failed"),
+        ("timed_out", "failed"),
+        ("cancelled", "failed"),
+        ("action_required", "failed"),
+        (None, "running"),
+        ("mystery", "running"),
+    ],
+)
+def test_every_run_conclusion_lands_in_a_bucket(github, conclusion, expect):
+    runs = {
+        "total_count": 1,
+        "check_runs": [{"name": "one", "status": "completed", "conclusion": conclusion}],
+    }
+    serving_detail(github, check_runs=runs)
+
+    checks = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM).checks
+
+    counts = {"passed": checks.passed, "failed": checks.failed, "running": checks.running}
+    assert counts[expect] == 1
+    assert sum(counts.values()) == 1
+
+
+@pytest.mark.parametrize(
+    "state,expect",
+    [("success", "passed"), ("failure", "failed"), ("error", "failed"), ("pending", "running")],
+)
+def test_every_legacy_status_state_lands_in_a_bucket(github, state, expect):
+    status = {"state": state, "statuses": [{"context": "ci/legacy", "state": state}]}
+    serving_detail(github, status=status)
+
+    checks = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM).checks
+
+    counts = {"passed": checks.passed, "failed": checks.failed, "running": checks.running}
+    assert counts[expect] == 1
+    assert sum(counts.values()) == 1
+
+
+def test_failed_names_are_capped_with_a_count_of_the_rest(github):
+    failing = [
+        {"name": f"job {index}", "status": "completed", "conclusion": "failure"}
+        for index in range(12)
+    ]
+    serving_detail(github, check_runs={"total_count": 12, "check_runs": failing})
+
+    checks = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM).checks
+
+    assert checks.failed == 12
+    assert len(checks.failed_names) == 10
+    assert checks.hidden_failed == 2
+
+
+def test_a_run_list_at_the_cap_reads_as_truncated(github):
+    passing = [
+        {"name": f"job {index}", "status": "completed", "conclusion": "success"}
+        for index in range(CHECK_RUNS_FETCH_LIMIT)
+    ]
+    serving_detail(github, check_runs={"total_count": 250, "check_runs": passing})
+
+    checks = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM).checks
+
+    assert checks.truncated is True
+    assert checks.passed == CHECK_RUNS_FETCH_LIMIT
+
+
+def test_an_unreadable_checks_endpoint_degrades_to_no_summary(github):
+    serving_detail(github)
+    github.serving(
+        f"/repos/octocat/hello/commits/{HEAD_SHA}/check-runs", {"message": "no"}, status=500
+    )
+
+    detail = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM)
+
+    assert detail.checks.available is False
+    assert "Splits the loader in two." in detail.body
+
+
+def test_a_run_name_carrying_escapes_is_sanitised(github):
+    runs = {
+        "total_count": 1,
+        "check_runs": [{"name": "acc\x1b[31mept", "status": "completed", "conclusion": "failure"}],
+    }
+    serving_detail(github, check_runs=runs)
+
+    checks = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM).checks
+
+    assert "\x1b" not in checks.failed_names[0]
+
+
+def test_detail_carries_the_newest_comments_oldest_first(github):
+    serving_detail(github, comments=COMMENTS)
+
+    detail = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM)
+
+    assert [comment.author for comment in detail.comments] == ["alice", "bob"]
+    assert detail.comments[0].body == "Looks good but the retry cap seems low."
+    assert detail.hidden_comments == 0
+
+
+def test_old_comments_are_counted_rather_than_shown(github):
+    many = [
+        {
+            "user": {"login": f"user{index}"},
+            "body": f"c{index}",
+            "created_at": "2026-08-13T10:00:00Z",
+        }
+        for index in range(9)
+    ]
+    serving_detail(github, comments=many)
+
+    detail = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM)
+
+    assert [comment.body for comment in detail.comments] == ["c4", "c5", "c6", "c7", "c8"]
+    assert detail.hidden_comments == 4
+    assert detail.hidden_comments_is_lower_bound is False
+
+
+def test_a_comment_list_at_the_cap_reads_as_a_lower_bound(github):
+    many = [
+        {"user": {"login": "who"}, "body": f"c{index}", "created_at": "2026-08-13T10:00:00Z"}
+        for index in range(COMMENTS_FETCH_LIMIT)
+    ]
+    serving_detail(github, comments=many)
+
+    detail = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM)
+
+    assert detail.hidden_comments_is_lower_bound is True
+
+
+def test_a_comment_survives_a_deleted_account_and_a_hostile_body(github):
+    hostile = [{"user": None, "body": "hi\x1b[31m", "created_at": "2026-08-13T10:00:00Z"}]
+    serving_detail(github, comments=hostile)
+
+    comment = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM).comments[0]
+
+    assert comment.author == ""
+    assert "\x1b" not in comment.body
