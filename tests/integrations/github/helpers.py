@@ -28,6 +28,7 @@ def pull(
     category: Category = Category.NEEDS_YOUR_REVIEW,
     repository: str = "octocat/hello",
     title: str | None = None,
+    author: str = "octocat",
 ) -> PullRequest:
     return PullRequest(
         id=f"{repository}#{number}",
@@ -36,7 +37,7 @@ def pull(
         number=number,
         title=title if title is not None else f"title of #{number}",
         repository=repository,
-        author="octocat",
+        author=author,
         category=category,
     )
 

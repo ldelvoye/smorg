@@ -1,7 +1,7 @@
-"""Tests for the GitHub inbox: two columns, a cursor in each, and no network."""
+"""Tests for the GitHub inbox: two stacked bands, one flat cursor, and the detail pane."""
 
 import io
-from datetime import UTC, datetime
+from datetime import timedelta
 
 import pytest
 from rich.console import Console
@@ -14,20 +14,15 @@ from smorg.integrations.github.source import (
     PullRequestDetail,
     Review,
 )
-from smorg.integrations.github.views.inbox import _COLUMNS, GitHubInbox
+from smorg.integrations.github.views.inbox import GitHubInbox
 
-from .helpers import inbox_with, pull
-
-NOW = datetime(2026, 8, 19, 12, 0, tzinfo=UTC)
-
-LEFT_TITLE, LEFT_CATEGORIES = _COLUMNS[0]
-RIGHT_TITLE, RIGHT_CATEGORIES = _COLUMNS[1]
+from .helpers import NOW, inbox_with, pull
 
 
 def rendered(inbox: GitHubInbox, width: int = 100) -> str:
     console = Console(width=width, file=io.StringIO(), force_terminal=False)
     with console.capture() as capture:
-        console.print(inbox.render_content())
+        console.print(inbox.render_view())
     return capture.get()
 
 
@@ -38,43 +33,39 @@ def test_the_inbox_says_how_to_get_back():
     assert "‹ esc — menu" in "\n".join(inbox_with(pull(42)).content_lines())
 
 
-# --- Two columns, side by side ---
+# --- Two bands, stacked ---
 
 
-def test_both_column_titles_land_on_the_same_line():
-    """The whole point of the layout: the review inbox and your own pull
-    requests are read side by side, not one after the other."""
-    inbox = inbox_with(pull(), pull(51, Category.DRAFT))
+def test_the_review_inbox_band_sits_above_your_pull_requests():
+    lines = inbox_with(pull(), pull(51, Category.DRAFT)).content_lines()
 
-    first_line = rendered(inbox).splitlines()[0]
-
-    assert LEFT_TITLE in first_line
-    assert RIGHT_TITLE in first_line
+    assert lines.index("review inbox") < lines.index("your pull requests")
 
 
-def test_every_declared_category_gets_a_heading():
+def test_an_empty_category_is_hidden():
     text = "\n".join(inbox_with(pull()).content_lines())
 
-    for _, categories in _COLUMNS:
-        for category in categories:
-            assert str(category) in text
-
-
-def test_an_empty_category_still_shows_its_heading_and_a_count_of_zero():
-    """A section that vanishes when empty and a section that was never
-    fetched look identical; a heading reading (0) says which this is."""
-    text = "\n".join(inbox_with(pull()).content_lines())
-
-    assert f"{Category.READY_TO_MERGE} (0)" in text
     assert f"{Category.NEEDS_YOUR_REVIEW} (1)" in text
+    assert str(Category.READY_TO_MERGE) not in text
+
+
+def test_an_empty_band_reads_all_caught_up():
+    """An empty band and a broken one must never look alike."""
+    lines = inbox_with(pull()).content_lines()
+
+    after_band_title = lines[lines.index("your pull requests") + 1 :]
+    remaining = [line.strip() for line in after_band_title if line.strip()]
+    assert remaining == ["all caught up"]
 
 
 def test_a_pull_request_is_drawn_under_the_category_the_source_gave_it():
-    text = "\n".join(inbox_with(pull(51, Category.DRAFT)).content_lines())
-    lines = text.splitlines()
-    heading = lines.index(f"{Category.DRAFT} (1)")
+    lines = inbox_with(pull(51, Category.DRAFT)).content_lines()
 
+    heading = lines.index(f"{Category.DRAFT} (1)")
     assert "#51" in lines[heading + 1]
+
+
+# --- Rows ---
 
 
 def test_a_row_names_the_repository_and_the_number():
@@ -84,7 +75,22 @@ def test_a_row_names_the_repository_and_the_number():
     assert "octocat/tools#7" in text
 
 
-# --- Change marks ---
+def test_a_row_shows_the_author_and_the_age(monkeypatch):
+    monkeypatch.setattr("smorg.shell.format.now", lambda: NOW + timedelta(hours=3))
+
+    text = "\n".join(inbox_with(pull(42)).content_lines())
+
+    assert "octocat · 3h" in text
+
+
+def test_a_deleted_author_leaves_the_age_alone(monkeypatch):
+    """A deleted account has author ""; the row must not render a dangling separator."""
+    monkeypatch.setattr("smorg.shell.format.now", lambda: NOW + timedelta(hours=3))
+
+    text = "\n".join(inbox_with(pull(42, author="")).content_lines())
+
+    assert "· 3h" not in text
+    assert "3h" in text
 
 
 def test_a_changed_pull_request_is_marked_and_a_seen_one_is_not():
@@ -99,10 +105,10 @@ def test_a_changed_pull_request_is_marked_and_a_seen_one_is_not():
     assert not any("#7" in line for line in marked)
 
 
-# --- Selection moves within a column, and between them ---
+# --- One cursor over every band ---
 
 
-def test_the_selection_starts_in_the_review_inbox():
+def test_the_selection_starts_at_the_first_row():
     inbox = inbox_with(pull(42), pull(51, Category.DRAFT))
 
     selected = inbox.selected_item()
@@ -111,64 +117,52 @@ def test_the_selection_starts_in_the_review_inbox():
     assert selected.number == 42
 
 
-def test_up_and_down_move_within_the_focused_column_only():
+def test_the_cursor_walks_every_band_in_order_and_wraps():
     inbox = inbox_with(
         pull(42, Category.NEEDS_YOUR_REVIEW),
         pull(43, Category.NEEDS_TEAM_REVIEW),
         pull(51, Category.DRAFT),
     )
 
-    inbox.action_cursor_down()
-    first = inbox.selected_item()
+    walked: list[int] = []
+    for _ in range(4):
+        selected = inbox.selected_item()
+        assert selected is not None
+        walked.append(selected.number)
+        inbox.action_cursor_down()
 
-    inbox.action_cursor_down()
-    second = inbox.selected_item()
-
-    assert first is not None and first.number == 43
-    # Wraps inside the column rather than crossing into the other one.
-    assert second is not None and second.number == 42
-
-
-def test_right_moves_the_selection_into_your_own_pull_requests():
-    inbox = inbox_with(pull(42), pull(51, Category.DRAFT))
-
-    inbox.action_next_column()
-    selected = inbox.selected_item()
-
-    assert selected is not None
-    assert selected.number == 51
+    assert walked == [42, 43, 51, 42]
 
 
-def test_each_column_keeps_its_own_cursor():
-    """Switching away and back returns to the row you left, not to the top."""
+def test_the_cursor_clamps_when_a_refresh_shrinks_the_list():
     inbox = inbox_with(
         pull(42, Category.NEEDS_YOUR_REVIEW),
         pull(43, Category.NEEDS_TEAM_REVIEW),
         pull(51, Category.DRAFT),
     )
     inbox.action_cursor_down()
+    inbox.action_cursor_down()
 
-    inbox.action_next_column()
-    inbox.action_previous_column()
+    inbox.panel.items = (pull(42),)
     selected = inbox.selected_item()
 
     assert selected is not None
-    assert selected.number == 43
+    assert selected.number == 42
 
 
-def test_an_empty_column_has_nothing_selected_and_moving_is_a_no_op():
-    inbox = inbox_with(pull(42))
+def test_an_empty_inbox_has_nothing_selected_and_moving_is_a_no_op():
+    inbox = inbox_with()
 
-    inbox.action_next_column()
     inbox.action_cursor_down()
 
     assert inbox.selected_item() is None
     assert inbox.selected_url() is None
 
 
-def test_the_open_action_returns_the_url_of_the_selected_pull_request():
+def test_selected_url_is_the_selected_pull_requests_url():
     inbox = inbox_with(pull(42), pull(51, Category.DRAFT))
-    inbox.action_next_column()
+
+    inbox.action_cursor_down()
 
     assert inbox.selected_url() == "https://github.com/octocat/hello/pull/51"
 
@@ -186,8 +180,7 @@ def test_a_title_that_looks_like_markup_is_drawn_literally():
 
 @pytest.mark.parametrize("width", [40, 60, 120])
 def test_no_row_wraps_at_any_width(width):
-    """A wrapped title spills into the next row's place and breaks a grid that
-    is already only half the screen wide."""
+    """A wrapped title spills into the next row's place; long titles ellipsize instead."""
     inbox = inbox_with(pull(42, title="a very long title " * 12))
 
     lines = rendered(inbox, width=width).splitlines()
