@@ -492,7 +492,6 @@ def test_a_misshapen_week_start_degrades_to_an_unavailable_profile(github):
 
 
 def test_an_empty_login_degrades_to_an_unavailable_profile(github):
-    """No real login means no real "welcome back, (unspecified)" profile or profile URL."""
     github.searching("user-review-requested:@me", [HELLO])
     hostile = json.loads(json.dumps(VIEWER))
     hostile["data"]["viewer"]["login"] = ""

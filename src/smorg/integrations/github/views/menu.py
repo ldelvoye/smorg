@@ -42,9 +42,7 @@ _DAY_LABELS: dict[int, str] = {1: "Mon ", 3: "Wed ", 5: "Fri "}
 # A month label is 3 characters ("Aug"); one column of headroom keeps adjacent labels legible.
 _MONTH_LABEL_GAP = 4
 
-# The same "⏎" Textual's own key-display shows for enter elsewhere in the app (see
-# shell/format.py's symbolize_key_display, part of that display pipeline) — hardcoded here
-# since this hint is plain text, not a key binding routed through that pipeline.
+# Same glyph Textual's key-display shows for enter (see shell/format.py's display pipeline).
 _ENTER_GLYPH = "⏎"
 
 
@@ -110,7 +108,7 @@ def _format_graph_rows(
 
 def _format_month_header(weeks: tuple[ContributionWeek, ...]) -> Text:
     """One dim row above the grid: each visible week's month abbreviation where it starts a new
-    month, skipping a label that would overlap the one already placed or run past the right edge.
+    month, skipping a label that would overlap the one already placed.
     """
     width = _CELL_WIDTH * len(weeks)
     cells = [" "] * width
