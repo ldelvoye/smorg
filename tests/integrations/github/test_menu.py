@@ -58,10 +58,37 @@ def test_nothing_changed_reads_as_caught_up():
     assert "you're all caught up" in menu_text(menu)
 
 
-def test_the_inbox_destination_is_listed_and_selected():
+def test_the_pull_requests_destination_is_listed_and_selected():
     menu = menu_with(profile_item())
     lines = menu.content_lines()
-    assert any("▸ inbox" in line for line in lines)
+    assert any("▸ pull requests" in line for line in lines)
+
+
+# --- Opening the signed-in user's GitHub profile ---
+
+
+def test_pressing_o_opens_the_signed_in_users_profile(monkeypatch):
+    opened: list[str] = []
+    monkeypatch.setattr(
+        "smorg.integrations.github.views.menu.webbrowser.open", lambda url: opened.append(url)
+    )
+    menu = menu_with(profile_item())
+
+    menu.action_open_profile()
+
+    assert opened == ["https://github.com/octocat"]
+
+
+def test_opening_the_profile_is_a_no_op_without_one(monkeypatch):
+    opened: list[str] = []
+    monkeypatch.setattr(
+        "smorg.integrations.github.views.menu.webbrowser.open", lambda url: opened.append(url)
+    )
+    menu = menu_with()
+
+    menu.action_open_profile()
+
+    assert opened == []
 
 
 # --- The contribution graph card ---

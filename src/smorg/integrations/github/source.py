@@ -292,11 +292,13 @@ def _profile_of(payload: object) -> Profile:
         if week is None:
             return _unavailable_profile()
         weeks.append(week)
+    login_text = sanitize_line(login)
+    profile_url = f"https://github.com/{login_text}"
     return Profile(
         id=PROFILE_ID,
         updated_at=PROFILE_STAMP,
-        url="https://github.com",
-        login=sanitize_line(login),
+        url=profile_url,
+        login=login_text,
         total_contributions=total,
         weeks=tuple(weeks),
     )

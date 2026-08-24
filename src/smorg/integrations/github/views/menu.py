@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import webbrowser
 from typing import TYPE_CHECKING
 
 from rich import box
@@ -25,7 +26,7 @@ _SELECTED_MARK = "▸"
 _CHANGED_MARK = "●"
 _CHANGE_STYLE = "green"
 
-_DESTINATIONS: tuple[tuple[str, GitHubView], ...] = (("inbox", GitHubView.INBOX),)
+_DESTINATIONS: tuple[tuple[str, GitHubView], ...] = (("pull requests", GitHubView.INBOX),)
 
 # Two glyph-and-space cells per graph week column.
 _CELL_WIDTH = 2
@@ -145,6 +146,7 @@ class GitHubMenu(Static):
         Binding("up", "previous_destination", "select destination", show=False),
         Binding("down", "next_destination", "select destination", show=False),
         Binding("enter", "open_destination", "open the selected view", show=False),
+        Binding("o", "open_profile", "open your GitHub profile", show=False),
     ]
     can_focus = True
 
@@ -217,6 +219,12 @@ class GitHubMenu(Static):
     def action_open_destination(self) -> None:
         _, destination = _DESTINATIONS[self.destination_cursor]
         self.panel.show_view(destination)
+
+    def action_open_profile(self) -> None:
+        profile = self.panel.profile()
+        if profile is None:
+            return
+        webbrowser.open(profile.url)
 
     def on_resize(self, event: events.Resize) -> None:
         """Refit the graph card's week count to the menu's new width."""

@@ -50,7 +50,7 @@ def profile_item() -> Profile:
     return Profile(
         id=PROFILE_ID,
         updated_at=datetime(1970, 1, 1, tzinfo=UTC),
-        url="https://github.com",
+        url="https://github.com/octocat",
         login="octocat",
         total_contributions=204,
         weeks=weeks,

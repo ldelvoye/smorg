@@ -445,6 +445,7 @@ def test_the_profile_arrives_last_with_parsed_weeks(github):
     assert isinstance(profile, Profile)
     assert profile.id == PROFILE_ID
     assert profile.login == "octocat"
+    assert profile.url == "https://github.com/octocat"
     assert profile.total_contributions == 204
     assert profile.unavailable is False
     assert isinstance(profile.weeks[0], ContributionWeek)
