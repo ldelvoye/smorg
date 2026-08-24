@@ -16,8 +16,8 @@ from smorg.integrations.github.views.menu import GitHubMenu
 from smorg.shell.panel import Panel
 from smorg.shell.terminal_palette import TerminalPalette, relative_luminance
 
-_GREEN_RAMP_DARK = ("#0e4429", "#006d32", "#26a641", "#39d353")
-_GREEN_RAMP_LIGHT = ("#9be9a8", "#40c463", "#30a14e", "#216e39")
+_GREEN_RAMP_DARK = ("#006d32", "#26a641", "#39d353", "#7ee787")
+_GREEN_RAMP_LIGHT = ("#aceebb", "#4ac26b", "#1a7f37", "#044f1e")
 
 
 def _ramp_for_background(background: tuple[int, int, int] | None) -> tuple[str, str, str, str]:
