@@ -174,6 +174,39 @@ class Panel(Vertical):
     def is_detail_showing(self, item: Item) -> bool:
         return self.detail_open and self._detail_target == self.detail_key(item)
 
+    def request_detail(self, item: Item) -> None:
+        """Start loading one item's detail unless it is already cached or in flight."""
+        key = self.detail_key(item)
+        if key in self._details or self._detail_pending == key:
+            return
+        self._detail_errors.pop(key, None)
+        self._detail_pending = key
+        self.post_message(self.DetailRequested(self, item))
+
+    def reload_detail(self, item: Item) -> None:
+        """Drop any cached detail for the item and load it again."""
+        key = self.detail_key(item)
+        self._details.pop(key, None)
+        self._detail_errors.pop(key, None)
+        if self._detail_pending == key:
+            self._detail_pending = None
+        self.request_detail(item)
+
+    def detail_for(self, item: Item) -> object | None:
+        return self._details.get(self.detail_key(item))
+
+    def detail_error_for(self, item: Item) -> str | None:
+        return self._detail_errors.get(self.detail_key(item))
+
+    def is_detail_pending(self, item: Item) -> bool:
+        return self._detail_pending == self.detail_key(item)
+
+    def detail_keys_in_use(self) -> set[tuple[str, str]]:
+        """Cache keys pruning must keep beyond the shown items'; the base pins the pane's target."""
+        if self._detail_target is not None:
+            return {self._detail_target}
+        return set()
+
     def mark_seen(self, item: Item) -> None:
         self.seen.mark_seen(self.integration_id, item)
         self._save_seen()
@@ -211,10 +244,7 @@ class Panel(Vertical):
             return
         self.detail_open = True
         self._detail_target = key
-        if key not in self._details:
-            self._detail_errors.pop(key, None)
-            self._detail_pending = key
-            self.post_message(self.DetailRequested(self, item))
+        self.request_detail(item)
         self._refresh_detail()
 
     def close_detail(self) -> None:
@@ -227,13 +257,13 @@ class Panel(Vertical):
         self._detail_errors.pop(key, None)
         if self._detail_pending == key:
             self._detail_pending = None
-        self._refresh_detail()
+        self.refresh()
 
     def show_detail_error(self, key: tuple[str, str], message: str) -> None:
         self._detail_errors[key] = message
         if self._detail_pending == key:
             self._detail_pending = None
-        self._refresh_detail()
+        self.refresh()
 
     def prune_detail_cache(self) -> None:
         """Drop cached detail/errors for items no longer in `self.items`.
@@ -241,19 +271,18 @@ class Panel(Vertical):
         Call after assigning fresh items, so stale keys don't accumulate.
         """
         live_keys = {self.detail_key(item) for item in self.items}
-        if self._detail_target is not None:
-            live_keys.add(self._detail_target)
+        live_keys |= self.detail_keys_in_use()
         self._details = {key: value for key, value in self._details.items() if key in live_keys}
         self._detail_errors = {
             key: message for key, message in self._detail_errors.items() if key in live_keys
         }
 
     def action_scroll_detail_up(self) -> None:
-        if self.detail_open and self.is_mounted:
+        if self.detail_open and self.is_mounted and self.query("#detail"):
             self.query_one("#detail", VerticalScroll).scroll_relative(y=-1, animate=False)
 
     def action_scroll_detail_down(self) -> None:
-        if self.detail_open and self.is_mounted:
+        if self.detail_open and self.is_mounted and self.query("#detail"):
             self.query_one("#detail", VerticalScroll).scroll_relative(y=1, animate=False)
 
     def _format_detail(self) -> RenderableType:
@@ -272,7 +301,10 @@ class Panel(Vertical):
     def _refresh_detail(self) -> None:
         if not self.is_mounted:
             return
-        region = self.query_one("#detail", VerticalScroll)
+        regions = self.query("#detail")
+        if not regions:
+            return
+        region = regions.first(VerticalScroll)
         region.set_class(self.detail_open, "-open")
         self.query_one("#detail-content", Static).update(self._format_detail())
         # Only reset scroll when the shown subject changes. Panel.refresh() also runs for
