@@ -9,10 +9,10 @@ from textual.app import ComposeResult
 from textual.types import NoActiveAppError
 
 from smorg.core.contract import Item
+from smorg.integrations.github.loading import GitHubLoading
 from smorg.integrations.github.source import Profile, PullRequest
 from smorg.integrations.github.views import GitHubView
 from smorg.integrations.github.views.inbox import GitHubInbox
-from smorg.integrations.github.views.loading import GitHubLoading
 from smorg.integrations.github.views.menu import GitHubMenu
 from smorg.shell.panel import Panel, PanelState
 from smorg.shell.terminal_palette import TerminalPalette, relative_luminance

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from smorg.integrations.github.loading import _SEGMENT_WIDTH, _TRACK_WIDTH, GitHubLoading
 from smorg.integrations.github.panel import GitHubPanel
-from smorg.integrations.github.views.loading import _SEGMENT_WIDTH, _TRACK_WIDTH, GitHubLoading
 from smorg.integrations.github.views.menu import GitHubMenu
 from smorg.shell.panel import PanelState
 

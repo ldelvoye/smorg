@@ -15,7 +15,9 @@ from .helpers import PanelHarness, panel_with, profile_item, pull
 def test_the_panel_and_its_views_never_fetch():
     """The seam the whole design rests on, enforced rather than trusted."""
     github_dir = Path("src") / "smorg" / "integrations" / "github"
-    files = [github_dir / "panel.py"] + sorted(github_dir.glob("views/*.py"))
+    files = [github_dir / "panel.py", github_dir / "loading.py"] + sorted(
+        github_dir.glob("views/*.py")
+    )
     for file in files:
         source = file.read_text()
         assert "httpx" not in source, file
