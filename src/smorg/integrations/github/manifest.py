@@ -12,7 +12,6 @@ from smorg.auth.token import TokenMethod
 from smorg.core.contract import Action, ActionClass, AuthPath, Item, Manifest
 from smorg.integrations.github.panel import GitHubPanel
 from smorg.integrations.github.source import (
-    PullRequest,
     PullRequestDetail,
     fetch,
     fetch_detail,
@@ -42,7 +41,7 @@ class GitHubIntegration:
     manifest: Manifest = MANIFEST
     panel_class: type[GitHubPanel] = GitHubPanel
 
-    def fetch(self, credentials: Credentials, http: httpx.Client) -> tuple[PullRequest, ...]:
+    def fetch(self, credentials: Credentials, http: httpx.Client) -> tuple[Item, ...]:
         return fetch(credentials, http)
 
     def fetch_detail(

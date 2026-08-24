@@ -72,7 +72,7 @@ class LinearPanel(Panel):
     BINDINGS = [
         Binding("up", "cursor_up", "select issue", show=False),
         Binding("down", "cursor_down", "select issue", show=False),
-        Binding("o", "open_selected", "open in browser", show=False),
+        Binding("o", "open_selected", "open in Linear", show=False),
         Binding("enter", "toggle_detail", "view details", show=False),
         Binding("shift+up", "scroll_detail_up", "scroll details", show=False),
         Binding("shift+down", "scroll_detail_down", "scroll details", show=False),

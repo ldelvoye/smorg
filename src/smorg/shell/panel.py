@@ -7,6 +7,7 @@ else.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
 from enum import StrEnum
 
@@ -125,15 +126,27 @@ class Panel(Vertical):
         self._detail_errors: dict[tuple[str, str], str] = {}
         self._detail_anchor: tuple[bool, tuple[str, str] | None] | None = None
 
-    def compose(self) -> ComposeResult:
-        yield _PanelBody(self)
+    def help_bindings(self) -> Iterable[object]:
+        """The bindings the help overlay lists for this panel; the active set, not always
+        the class's.
+        """
+        return type(self).BINDINGS
+
+    def build_detail_region(self) -> VerticalScroll:
+        """The detail scroll region with its content and gutter, for any compose that
+        shows details.
+        """
         detail = VerticalScroll(
             Static(markup=False, id="detail-content"), _DetailGutter(), id="detail"
         )
-        # The panel keeps focus; the region is scrolled through panel actions,
-        # never focused itself.
+        # The panel keeps focus; the region is scrolled through panel actions, never
+        # focused itself.
         detail.can_focus = False
-        yield detail
+        return detail
+
+    def compose(self) -> ComposeResult:
+        yield _PanelBody(self)
+        yield self.build_detail_region()
 
     def render_ready(self) -> RenderableType:
         """The tab's body in the READY state, for an integration to override."""

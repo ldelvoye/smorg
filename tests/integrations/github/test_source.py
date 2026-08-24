@@ -8,7 +8,7 @@ for it.
 
 import json
 import urllib.parse
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import httpx
@@ -25,8 +25,11 @@ from smorg.core.contract import AccessNotAllowed, AuthExpired, Malformed, Unavai
 from smorg.integrations.github.source import (
     BASE_QUERY,
     MAX_PER_QUERY,
+    PROFILE_ID,
     QUERIES,
     Category,
+    ContributionWeek,
+    Profile,
     PullRequest,
     fetch,
     fetch_detail,
@@ -44,14 +47,70 @@ CREDENTIALS = Credentials(
     access_token="github_pat_secret", refresh_token=None, expires_at=None, scope=""
 )
 
+VIEWER = {
+    "data": {
+        "viewer": {
+            "login": "octocat",
+            "contributionsCollection": {
+                "contributionCalendar": {
+                    "totalContributions": 204,
+                    "weeks": [
+                        {
+                            "firstDay": "2026-08-09",
+                            "contributionDays": [
+                                {"weekday": 0, "contributionLevel": "NONE"},
+                                {"weekday": 1, "contributionLevel": "FIRST_QUARTILE"},
+                                {"weekday": 2, "contributionLevel": "SECOND_QUARTILE"},
+                                {"weekday": 3, "contributionLevel": "THIRD_QUARTILE"},
+                                {"weekday": 4, "contributionLevel": "FOURTH_QUARTILE"},
+                                {"weekday": 5, "contributionLevel": "NONE"},
+                                {"weekday": 6, "contributionLevel": "NONE"},
+                            ],
+                        },
+                        {
+                            "firstDay": "2026-08-16",
+                            "contributionDays": [
+                                {"weekday": 0, "contributionLevel": "FOURTH_QUARTILE"},
+                            ],
+                        },
+                    ],
+                }
+            },
+        }
+    }
+}
+
+
+def graphql_http(body: object = None, status: int = 200) -> httpx.Client:
+    if body is None:
+        body = VIEWER
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        assert request.url == "https://api.github.com/graphql"
+        return httpx.Response(status, json=body)
+
+    return httpx.Client(transport=httpx.MockTransport(respond))
+
+
+def failing_http() -> httpx.Client:
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("boom", request=request)
+
+    return httpx.Client(transport=httpx.MockTransport(refuse))
+
 
 def _refuse(request: httpx.Request) -> httpx.Response:
-    raise AssertionError("PyGithub brings its own transport; the shell's client must go unused")
+    raise AssertionError("PyGithub brings its own transport; fetch_detail's client must go unused")
 
 
-# Handed to every call, and wired to fail if anything ever reaches it: the
-# GitHub source is the one source that does not fetch over the shared client.
+# Handed to fetch_detail calls, and wired to fail if anything ever reaches it: PyGithub owns
+# that path's transport, so the shell's shared client has nothing to do there.
 UNUSED_HTTP = httpx.Client(transport=httpx.MockTransport(_refuse))
+
+
+def only_pull_requests(items: tuple) -> list[PullRequest]:
+    return [item for item in items if isinstance(item, PullRequest)]
+
 
 ITEM = PullRequest(
     id="octocat/hello#42",
@@ -176,7 +235,7 @@ def github():
 
 
 def test_every_declared_category_is_searched_for(github):
-    fetch(CREDENTIALS, UNUSED_HTTP)
+    fetch(CREDENTIALS, graphql_http())
 
     asked = set(github.searches)
     for _, qualifiers in QUERIES:
@@ -190,7 +249,7 @@ def test_every_category_the_panel_draws_can_be_produced(github):
 
 
 def test_a_search_names_no_repository_so_the_whole_account_is_covered(github):
-    fetch(CREDENTIALS, UNUSED_HTTP)
+    fetch(CREDENTIALS, graphql_http())
 
     assert all("repo:" not in query for query in github.searches)
 
@@ -204,7 +263,7 @@ def test_a_pull_request_keeps_the_first_category_that_claimed_it(github):
     github.searching("user-review-requested:@me", [HELLO])
     github.searching("review-requested:@me", [HELLO])
 
-    pulls = fetch(CREDENTIALS, UNUSED_HTTP)
+    pulls = only_pull_requests(fetch(CREDENTIALS, graphql_http()))
 
     assert [pull.category for pull in pulls] == [Category.NEEDS_YOUR_REVIEW]
 
@@ -215,7 +274,7 @@ def test_a_team_request_is_whatever_the_direct_query_did_not_claim(github):
     github.searching("user-review-requested:@me", [HELLO])
     github.searching("review-requested:@me", [HELLO, TOOLS])
 
-    by_id = {pull.id: pull.category for pull in fetch(CREDENTIALS, UNUSED_HTTP)}
+    by_id = {pr.id: pr.category for pr in only_pull_requests(fetch(CREDENTIALS, graphql_http()))}
 
     assert by_id["octocat/hello#42"] is Category.NEEDS_YOUR_REVIEW
     assert by_id["octocat/tools#7"] is Category.NEEDS_TEAM_REVIEW
@@ -225,7 +284,7 @@ def test_a_pull_request_waiting_on_you_outranks_the_catch_all(github):
     github.searching("author:@me draft:false review:changes_requested", [HELLO])
     github.searching("author:@me draft:false", [HELLO, TOOLS])
 
-    by_id = {pull.id: pull.category for pull in fetch(CREDENTIALS, UNUSED_HTTP)}
+    by_id = {pr.id: pr.category for pr in only_pull_requests(fetch(CREDENTIALS, graphql_http()))}
 
     assert by_id["octocat/hello#42"] is Category.NEEDS_ACTION
     assert by_id["octocat/tools#7"] is Category.WAITING
@@ -234,7 +293,7 @@ def test_a_pull_request_waiting_on_you_outranks_the_catch_all(github):
 def test_a_failing_check_is_something_to_act_on(github):
     github.searching("author:@me draft:false status:failure", [HELLO])
 
-    pulls = fetch(CREDENTIALS, UNUSED_HTTP)
+    pulls = only_pull_requests(fetch(CREDENTIALS, graphql_http()))
 
     assert [pull.category for pull in pulls] == [Category.NEEDS_ACTION]
 
@@ -247,13 +306,13 @@ def test_an_item_is_identified_by_repository_and_number(github):
     which is what the seen-state keys off."""
     github.searching("user-review-requested:@me", [HELLO])
 
-    assert fetch(CREDENTIALS, UNUSED_HTTP)[0].id == "octocat/hello#42"
+    assert only_pull_requests(fetch(CREDENTIALS, graphql_http()))[0].id == "octocat/hello#42"
 
 
 def test_an_item_carries_what_the_panel_draws(github):
     github.searching("user-review-requested:@me", [HELLO])
 
-    pull = fetch(CREDENTIALS, UNUSED_HTTP)[0]
+    pull = only_pull_requests(fetch(CREDENTIALS, graphql_http()))[0]
 
     assert pull.repository == "octocat/hello"
     assert pull.number == 42
@@ -266,7 +325,7 @@ def test_an_item_carries_what_the_panel_draws(github):
 def test_pull_requests_come_back_newest_first(github):
     github.searching("user-review-requested:@me", [TOOLS, HELLO])
 
-    pulls = fetch(CREDENTIALS, UNUSED_HTTP)
+    pulls = only_pull_requests(fetch(CREDENTIALS, graphql_http()))
 
     assert [pull.id for pull in pulls] == ["octocat/hello#42", "octocat/tools#7"]
 
@@ -276,7 +335,7 @@ def test_a_title_carrying_terminal_escapes_is_sanitised(github):
     hostile = HELLO | {"title": "Tidy\x1b[31m the\x00 loader"}
     github.searching("user-review-requested:@me", [hostile])
 
-    title = fetch(CREDENTIALS, UNUSED_HTTP)[0].title
+    title = only_pull_requests(fetch(CREDENTIALS, graphql_http()))[0].title
 
     assert "\x1b" not in title
     assert "\x00" not in title
@@ -285,7 +344,7 @@ def test_a_title_carrying_terminal_escapes_is_sanitised(github):
 def test_a_deleted_author_leaves_the_row_drawable(github):
     github.searching("user-review-requested:@me", [HELLO | {"user": None}])
 
-    assert fetch(CREDENTIALS, UNUSED_HTTP)[0].author == ""
+    assert only_pull_requests(fetch(CREDENTIALS, graphql_http()))[0].author == ""
 
 
 def test_the_search_stops_at_the_bound(github):
@@ -294,7 +353,7 @@ def test_the_search_stops_at_the_bound(github):
     many = [HELLO | {"number": index, "id": index} for index in range(MAX_PER_QUERY + 20)]
     github.searching("user-review-requested:@me", many)
 
-    assert len(fetch(CREDENTIALS, UNUSED_HTTP)) == MAX_PER_QUERY
+    assert len(only_pull_requests(fetch(CREDENTIALS, graphql_http()))) == MAX_PER_QUERY
 
 
 # --- Failures cross the seam as one of the three ---
@@ -304,7 +363,7 @@ def test_a_rejected_token_is_auth_expired(github):
     github.failing_every_search(401, {"message": "Bad credentials"})
 
     with pytest.raises(AuthExpired):
-        fetch(CREDENTIALS, UNUSED_HTTP)
+        fetch(CREDENTIALS, graphql_http())
 
 
 def test_a_token_missing_a_scope_is_access_not_allowed(github):
@@ -315,7 +374,7 @@ def test_a_token_missing_a_scope_is_access_not_allowed(github):
     )
 
     with pytest.raises(AccessNotAllowed):
-        fetch(CREDENTIALS, UNUSED_HTTP)
+        fetch(CREDENTIALS, graphql_http())
 
 
 def test_an_sso_blocked_token_does_not_read_as_expired(github):
@@ -326,7 +385,7 @@ def test_an_sso_blocked_token_does_not_read_as_expired(github):
     )
 
     with pytest.raises(AccessNotAllowed) as raised:
-        fetch(CREDENTIALS, UNUSED_HTTP)
+        fetch(CREDENTIALS, graphql_http())
 
     message = str(raised.value)
     assert "organization" in message
@@ -339,28 +398,28 @@ def test_a_refused_query_is_malformed(github):
     github.failing_every_search(422, {"message": "Validation Failed"})
 
     with pytest.raises(Malformed):
-        fetch(CREDENTIALS, UNUSED_HTTP)
+        fetch(CREDENTIALS, graphql_http())
 
 
 def test_github_being_down_is_unavailable(github):
     github.failing_every_search(503, {"message": "Service unavailable"})
 
     with pytest.raises(Unavailable):
-        fetch(CREDENTIALS, UNUSED_HTTP)
+        fetch(CREDENTIALS, graphql_http())
 
 
 def test_a_result_naming_no_repository_is_malformed(github):
     github.searching("user-review-requested:@me", [HELLO | {"repository_url": "nonsense"}])
 
     with pytest.raises(Malformed):
-        fetch(CREDENTIALS, UNUSED_HTTP)
+        fetch(CREDENTIALS, graphql_http())
 
 
 def test_a_failure_never_repeats_the_token(github):
     github.failing_every_search(401, {"message": "Bad credentials"})
 
     with pytest.raises(AuthExpired) as raised:
-        fetch(CREDENTIALS, UNUSED_HTTP)
+        fetch(CREDENTIALS, graphql_http())
 
     assert "github_pat_secret" not in str(raised.value)
 
@@ -371,9 +430,86 @@ def test_an_expired_token_says_so_where_the_shell_appends_the_fix(github):
     github.failing_every_search(401, {"message": "Bad credentials"})
 
     with pytest.raises(AuthExpired) as raised:
-        fetch(CREDENTIALS, UNUSED_HTTP)
+        fetch(CREDENTIALS, graphql_http())
 
     assert "expired" in str(raised.value)
+
+
+# --- The viewer's profile and contribution calendar ---
+
+
+def test_the_profile_arrives_last_with_parsed_weeks(github):
+    items = fetch(CREDENTIALS, graphql_http())
+
+    profile = items[-1]
+    assert isinstance(profile, Profile)
+    assert profile.id == PROFILE_ID
+    assert profile.login == "octocat"
+    assert profile.url == "https://github.com/octocat"
+    assert profile.total_contributions == 204
+    assert profile.unavailable is False
+    assert isinstance(profile.weeks[0], ContributionWeek)
+    assert profile.weeks[0].first_day == date(2026, 8, 9)
+    assert profile.weeks[0].levels == (0, 1, 2, 3, 4, 0, 0)
+    assert profile.weeks[1].first_day == date(2026, 8, 16)
+    # The partial trailing week fills unqueried days with ABSENT_DAY.
+    assert profile.weeks[1].levels == (4, -1, -1, -1, -1, -1, -1)
+
+
+def test_a_failing_graphql_call_degrades_to_an_unavailable_profile(github):
+    items = fetch(CREDENTIALS, failing_http())
+
+    profile = items[-1]
+    assert isinstance(profile, Profile)
+    assert profile.unavailable is True
+    # No searches were registered, so the pull-request half must be empty, not broken.
+    assert only_pull_requests(items) == []
+
+
+def test_a_graphql_error_status_degrades_to_an_unavailable_profile(github):
+    items = fetch(CREDENTIALS, graphql_http({"message": "no"}, status=403))
+
+    assert isinstance(items[-1], Profile) and items[-1].unavailable is True
+
+
+def test_a_misshapen_graphql_payload_degrades_instead_of_raising(github):
+    items = fetch(CREDENTIALS, graphql_http({"data": {"viewer": "what"}}))
+
+    assert isinstance(items[-1], Profile) and items[-1].unavailable is True
+
+
+def test_a_misshapen_week_start_degrades_to_an_unavailable_profile(github):
+    """A parse failure in the calendar must not cost the pull-request half of the fetch."""
+    github.searching("user-review-requested:@me", [HELLO])
+    hostile = json.loads(json.dumps(VIEWER))
+    calendar = hostile["data"]["viewer"]["contributionsCollection"]["contributionCalendar"]
+    calendar["weeks"][0]["firstDay"] = 5
+
+    items = fetch(CREDENTIALS, graphql_http(hostile))
+
+    assert isinstance(items[-1], Profile) and items[-1].unavailable is True
+    assert [pull.id for pull in only_pull_requests(items)] == ["octocat/hello#42"]
+
+
+def test_an_empty_login_degrades_to_an_unavailable_profile(github):
+    github.searching("user-review-requested:@me", [HELLO])
+    hostile = json.loads(json.dumps(VIEWER))
+    hostile["data"]["viewer"]["login"] = ""
+
+    items = fetch(CREDENTIALS, graphql_http(hostile))
+
+    assert isinstance(items[-1], Profile) and items[-1].unavailable is True
+    assert [pull.id for pull in only_pull_requests(items)] == ["octocat/hello#42"]
+
+
+def test_the_profile_login_is_sanitized(github):
+    hostile = json.loads(json.dumps(VIEWER))
+    hostile["data"]["viewer"]["login"] = "octo\x1b[31mcat"
+
+    profile = fetch(CREDENTIALS, graphql_http(hostile))[-1]
+
+    assert isinstance(profile, Profile)
+    assert "\x1b" not in profile.login
 
 
 # --- The detail pane ---
