@@ -16,9 +16,11 @@
 ### Github
 
 - Add line change, CI status (+ which runs failed, if any), and show comment details
-- Add profile recap (github green), revamp UI
+- Revamp pull request UI
 - Add gh login auth method
-- (Token) For SAML/SSO companies, add a redirect link to the user's token page so they can re-auth SSO
+- Per-panel refresh stages: report fetch stages to the panel (initial fetch included), shell
+  indicator stays the default renderer; the loading takeover gains a live status line
+  ("connecting…" / "waiting on GitHub…"), and integrations can own their refresh display
 
 
 ### Spotify
