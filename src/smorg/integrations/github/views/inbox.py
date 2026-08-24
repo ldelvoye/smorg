@@ -19,7 +19,7 @@ from textual.widgets import Static
 
 from smorg.core.contract import Item
 from smorg.integrations.github.source import Category, PullRequest, PullRequestDetail, Review
-from smorg.integrations.github.views import GitHubView
+from smorg.integrations.github.views import CHANGE_STYLE, CHANGED_MARK, SELECTED_MARK, GitHubView
 from smorg.shell.format import age
 from smorg.shell.markdown import Markdown
 from smorg.shell.panel import PanelState
@@ -27,12 +27,9 @@ from smorg.shell.panel import PanelState
 if TYPE_CHECKING:
     from smorg.integrations.github.panel import GitHubPanel
 
-_CHANGED_MARK = "●"
-_SELECTED_MARK = "▸"
 _EMPTY_SECTION = "  —"
 _BACK_HINT = "‹ esc — menu"
 
-_CHANGE_STYLE = "green"
 _COLUMN_TITLE_STYLE = "bold underline"
 _CATEGORY_STYLES = {
     Category.NEEDS_YOUR_REVIEW: "bold red",
@@ -208,7 +205,7 @@ class GitHubInbox(Vertical):
     def _format_row(self, pr: PullRequest, selected: bool) -> Text:
         if selected:
             row = Text(style="bold")
-            marker = f"{_SELECTED_MARK} "
+            marker = f"{SELECTED_MARK} "
         else:
             row = Text()
             marker = "  "
@@ -216,8 +213,8 @@ class GitHubInbox(Vertical):
 
         changed = self.panel.seen.is_changed(self.panel.integration_id, pr)
         if changed:
-            mark_char = _CHANGED_MARK
-            mark_style = _CHANGE_STYLE
+            mark_char = CHANGED_MARK
+            mark_style = CHANGE_STYLE
         else:
             mark_char = " "
             mark_style = None
