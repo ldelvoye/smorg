@@ -105,8 +105,14 @@ def _format_hidden_reviews_line(hidden: int, lower_bound: bool) -> Text:
 
     (1, True) -> "… 1+ earlier reviews"
     """
-    noun = "review" if hidden == 1 and not lower_bound else "reviews"
-    count = f"{hidden}+" if lower_bound else str(hidden)
+    if hidden == 1 and not lower_bound:
+        noun = "review"
+    else:
+        noun = "reviews"
+    if lower_bound:
+        count = f"{hidden}+"
+    else:
+        count = str(hidden)
     return Text(f"… {count} earlier {noun}", style="dim")
 
 
@@ -177,7 +183,9 @@ class GitHubInbox(Vertical):
 
     def selected_url(self) -> str | None:
         pr = self.selected_item()
-        return pr.url if pr is not None else None
+        if pr is None:
+            return None
+        return pr.url
 
     def render_view(self) -> RenderableType:
         """The whole ready view: the back hint above the bands."""

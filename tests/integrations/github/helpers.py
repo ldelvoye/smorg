@@ -30,12 +30,14 @@ def pull(
     title: str | None = None,
     author: str = "octocat",
 ) -> PullRequest:
+    if title is None:
+        title = f"title of #{number}"
     return PullRequest(
         id=f"{repository}#{number}",
         updated_at=NOW,
         url=f"https://github.com/{repository}/pull/{number}",
         number=number,
-        title=title if title is not None else f"title of #{number}",
+        title=title,
         repository=repository,
         author=author,
         category=category,
