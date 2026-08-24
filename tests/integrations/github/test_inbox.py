@@ -65,12 +65,12 @@ def test_a_fully_empty_inbox_reads_all_caught_up_in_both_bands():
     assert len(caught_up) == 2
 
 
-def test_a_pull_request_is_a_two_line_cell_under_its_category():
+def test_a_pull_request_is_a_two_line_cell_under_its_category_card():
     lines = inbox_with(pull(51, Category.DRAFT)).content_lines()
 
-    heading = lines.index(f"{Category.DRAFT} (1)")
-    assert "title of #51" in lines[heading + 2]
-    assert "octocat/hello#51" in lines[heading + 3]
+    heading = next(i for i, line in enumerate(lines) if f"{Category.DRAFT} (1)" in line)
+    assert "title of #51" in lines[heading + 1]
+    assert "octocat/hello#51" in lines[heading + 2]
 
 
 # --- Cells ---
@@ -101,12 +101,12 @@ def test_a_deleted_author_leaves_the_age_alone(monkeypatch):
     assert "· ·" not in text
 
 
-def test_every_cell_line_carries_the_accent_bar():
+def test_a_category_renders_as_a_bordered_card_titled_by_its_heading():
     lines = inbox_with(pull(42)).content_lines()
 
-    cell_lines = [line for line in lines if "title of #42" in line or "octocat/hello#42" in line]
-    assert len(cell_lines) == 2
-    assert all(line.startswith("▎") for line in cell_lines)
+    heading = next(i for i, line in enumerate(lines) if f"{Category.NEEDS_YOUR_REVIEW} (1)" in line)
+    assert lines[heading].lstrip().startswith("╭")
+    assert any(line.lstrip().startswith("╰") for line in lines[heading + 1 :])
 
 
 def test_a_changed_pull_request_is_marked_and_a_seen_one_is_not():
@@ -119,6 +119,24 @@ def test_a_changed_pull_request_is_marked_and_a_seen_one_is_not():
 
     assert any("#42" in line for line in marked)
     assert not any("#7" in line for line in marked)
+
+
+def test_cells_in_one_card_are_separated_by_a_blank_line():
+    inbox = inbox_with(pull(42), pull(43, repository="octocat/tools"))
+
+    lines = inbox.content_lines()
+
+    first_meta = next(i for i, line in enumerate(lines) if "octocat/hello#42" in line)
+    assert lines[first_meta + 1].strip("│ ") == ""
+    assert "octocat/tools#43" in lines[first_meta + 3]
+
+
+def test_only_the_selected_cell_carries_the_marker():
+    lines = inbox_with(pull(42), pull(51, Category.DRAFT)).content_lines()
+
+    marked = [line for line in lines if "▸" in line]
+    assert len(marked) == 1
+    assert "title of #42" in marked[0]
 
 
 # --- One cursor over every band ---
