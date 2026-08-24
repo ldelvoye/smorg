@@ -30,8 +30,6 @@ def _ramp_for_background(background: tuple[int, int, int] | None) -> tuple[str, 
 
 
 class GitHubPanel(Panel):
-    # False by default: focus lives on the views once data lands. _sync_view_display flips this
-    # per-instance during LOADING, when the host itself takes focus for the takeover.
     can_focus = False
 
     def __init__(self) -> None:
@@ -49,7 +47,8 @@ class GitHubPanel(Panel):
     def show_view(self, view: GitHubView) -> None:
         self.active_view = view
         self._sync_view_display()
-        self._active_view_widget().focus()
+        if self.state is not PanelState.LOADING:
+            self._active_view_widget().focus()
         self.refresh()
 
     def focus(self, scroll_visible: bool = True):
@@ -65,8 +64,7 @@ class GitHubPanel(Panel):
 
     def _sync_view_display(self) -> None:
         is_loading = self.state is PanelState.LOADING
-        # Focusable only while loading: the host holds focus for the takeover, then hands it to
-        # the active view; focusable-with-no-bindings at any other time is a dead Tab stop.
+        # Focusable only during the loading takeover; otherwise a bindingless focus stop.
         self.can_focus = is_loading
         self.query_one(GitHubLoading).display = is_loading
         self._menu().display = not is_loading and self.active_view is GitHubView.MENU
