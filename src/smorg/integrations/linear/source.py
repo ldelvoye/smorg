@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from smorg.auth.store import Credentials
-from smorg.core.contract import Item, Malformed
+from smorg.core.contract import Item, Malformed, Newest
 from smorg.core.mcp import McpSession
 from smorg.core.shape import optional_string, required_string, timestamp
 from smorg.core.text import sanitize_block, sanitize_line, truncate
@@ -68,10 +68,7 @@ class Comment:
 class IssueDetail:
     description: str
     assignee: str
-    comments: tuple[Comment, ...]
-    # Comments that were fetched and dropped past COMMENT_LIMIT.
-    hidden_comments: int = 0
-    hidden_is_lower_bound: bool = False
+    comments: Newest[Comment]
 
 
 def fetch(credentials: Credentials, http: httpx.Client) -> tuple[Issue, ...]:
@@ -154,9 +151,11 @@ def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> Is
     return IssueDetail(
         description=description,
         assignee=assignee_name,
-        comments=tuple(newest),
-        hidden_comments=max(0, len(raw_comments) - COMMENT_LIMIT),
-        hidden_is_lower_bound=len(raw_comments) >= COMMENTS_FETCH_LIMIT or more_on_server,
+        comments=Newest(
+            items=tuple(newest),
+            hidden=max(0, len(raw_comments) - COMMENT_LIMIT),
+            hidden_is_lower_bound=len(raw_comments) >= COMMENTS_FETCH_LIMIT or more_on_server,
+        ),
     )
 
 
@@ -168,7 +167,10 @@ def _comment_of(raw: Any) -> Comment:
         name = ""
     elif isinstance(author, dict):
         raw_name = optional_string(author, "name")
-        name = sanitize_line(raw_name) if raw_name else ""
+        if raw_name:
+            name = sanitize_line(raw_name)
+        else:
+            name = ""
     else:
         raise Malformed(f"'author' was {type(author).__name__}, expected an object")
     created_at = timestamp(raw, "createdAt")

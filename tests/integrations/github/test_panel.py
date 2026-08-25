@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+from smorg.core.contract import Newest
 from smorg.core.state import SeenState
 from smorg.integrations.github.loading import GitHubLoading
 from smorg.integrations.github.panel import GitHubPanel
@@ -11,7 +12,6 @@ from smorg.integrations.github.source import (
     UNAVAILABLE_CHECKS,
     Category,
     LineCounts,
-    Newest,
     PullRequestDetail,
 )
 from smorg.integrations.github.views import GitHubView

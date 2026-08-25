@@ -16,6 +16,7 @@ from smorg.integrations.github.views import GitHubView
 from smorg.integrations.linear.panel import LinearPanel
 from smorg.integrations.linear.source import Issue
 from smorg.shell.app import SmorgApp
+from smorg.shell.detail_pane import SplitDetailPanel
 from smorg.shell.help import HelpOverlay
 from smorg.shell.panel import Panel, PanelState, _scroll_indicators
 from smorg.shell.refresh_indicator import DONE_LINGER_SECONDS, RefreshIndicator, RefreshStage
@@ -128,8 +129,7 @@ async def test_the_app_defaults_to_the_terminal_native_ansi_theme():
     "ansi-dark" is Textual's built-in theme that resolves background,
     foreground, and chrome colors to the terminal's own ANSI palette instead of
     fixed truecolor hex values, and it is what makes native_ansi_color true —
-    the flag that keeps named ANSI colors (e.g. CHANGE_STYLE) from being
-    approximated to RGB.
+    the flag that keeps named ANSI colors from being approximated to RGB.
     """
     app = SmorgApp(tabs=(TabConfig("alpha"),))
     async with app.run_test():
@@ -867,7 +867,7 @@ def test_prune_detail_cache_drops_keys_for_items_no_longer_in_the_list():
 
 
 def test_prune_detail_cache_keeps_the_open_targets_entry_even_if_orphaned():
-    panel = Panel()
+    panel = SplitDetailPanel()
     reopened = item("ENG-1")
     panel.items = ()  # the ticket left the list entirely (or its key changed)
     key = panel.detail_key(reopened)

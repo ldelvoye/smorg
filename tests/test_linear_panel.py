@@ -11,6 +11,7 @@ from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll
 from textual.widgets import Static
 
+from smorg.core.contract import Newest
 from smorg.core.state import SeenState
 from smorg.integrations.linear.panel import LinearPanel
 from smorg.integrations.linear.source import Comment, Issue, IssueDetail
@@ -127,12 +128,12 @@ def _style_at(rendered: Text, substring: str) -> str | Style | None:
 
 def test_the_in_progress_header_is_bold_yellow():
     rendered = panel_with(issue("ENG-1", "In Progress")).render_ready()
-    assert _style_at(rendered, "In Progress") == "bold yellow"
+    assert _style_at(rendered, "In Progress") == "bold #d29922"
 
 
 def test_an_unknown_started_status_falls_back_to_bold_yellow():
     rendered = panel_with(issue("ENG-1", "Doing The Work")).render_ready()
-    assert _style_at(rendered, "Doing The Work") == "bold yellow"
+    assert _style_at(rendered, "Doing The Work") == "bold #d29922"
 
 
 def test_an_unknown_unstarted_status_falls_back_to_bold():
@@ -144,8 +145,8 @@ def test_an_unknown_unstarted_status_falls_back_to_bold():
 @pytest.mark.parametrize(
     ("status", "style"),
     [
-        ("Blocked", "bold red"),
-        ("In Review", "bold green"),
+        ("Blocked", "bold #f85149"),
+        ("In Review", "bold #3fb950"),
     ],
 )
 def test_known_status_labels_get_their_mapped_style(status: str, style: str) -> None:
@@ -155,7 +156,7 @@ def test_known_status_labels_get_their_mapped_style(status: str, style: str) -> 
 
 def test_status_style_lookup_is_case_insensitive():
     rendered = panel_with(issue("ENG-1", "IN PROGRESS")).render_ready()
-    assert _style_at(rendered, "IN PROGRESS") == "bold yellow"
+    assert _style_at(rendered, "IN PROGRESS") == "bold #d29922"
 
 
 def test_the_urgent_glyph_is_bold_red():
@@ -165,14 +166,14 @@ def test_the_urgent_glyph_is_bold_red():
     rendered = panel_with(
         replace(issue("ENG-1"), priority="Low"), replace(issue("ENG-2"), priority="Urgent")
     ).render_ready()
-    assert _style_at(rendered, "!!!") == "bold red"
+    assert _style_at(rendered, "!!!") == "bold #f85149"
 
 
 def test_the_high_glyph_is_yellow():
     rendered = panel_with(
         replace(issue("ENG-1"), priority="Low"), replace(issue("ENG-2"), priority="High")
     ).render_ready()
-    assert _style_at(rendered, "!!") == "yellow"
+    assert _style_at(rendered, "!!") == "#d29922"
 
 
 def test_the_medium_glyph_carries_no_style():
@@ -449,10 +450,11 @@ def test_plain_output_is_derived_from_the_styled_render():
 
 
 def detail(description: str = "the description", *bodies: str) -> IssueDetail:
+    comments = tuple(Comment(author="alice", body=body, created_at=NOW) for body in bodies)
     return IssueDetail(
         description=description,
         assignee="Lucas",
-        comments=tuple(Comment(author="alice", body=body, created_at=NOW) for body in bodies),
+        comments=Newest(items=comments),
     )
 
 
@@ -768,21 +770,27 @@ def _rendered_detail_text(panel: LinearPanel, detail_obj) -> str:
 
 
 def test_render_detail_shows_the_earlier_comment_count_above_the_first_comment():
-    detail_obj = replace(detail("d", "shown comment"), hidden_comments=3)
+    base = detail("d", "shown comment")
+    comments = replace(base.comments, hidden=3)
+    detail_obj = replace(base, comments=comments)
     text = _rendered_detail_text(panel_with(issue("ENG-1")), detail_obj)
     assert "… 3 earlier comments" in text
     assert text.index("earlier comments") < text.index("shown comment")
 
 
 def test_render_detail_uses_the_singular_for_exactly_one_hidden_comment():
-    detail_obj = replace(detail("d"), hidden_comments=1)
+    base = detail("d")
+    comments = replace(base.comments, hidden=1)
+    detail_obj = replace(base, comments=comments)
     text = _rendered_detail_text(panel_with(issue("ENG-1")), detail_obj)
     assert "… 1 earlier comment" in text
     assert "1 earlier comments" not in text
 
 
 def test_render_detail_appends_a_plus_for_a_lower_bound_hidden_count():
-    detail_obj = replace(detail("d"), hidden_comments=20, hidden_is_lower_bound=True)
+    base = detail("d")
+    comments = replace(base.comments, hidden=20, hidden_is_lower_bound=True)
+    detail_obj = replace(base, comments=comments)
     text = _rendered_detail_text(panel_with(issue("ENG-1")), detail_obj)
     assert "… 20+ earlier comments" in text
 

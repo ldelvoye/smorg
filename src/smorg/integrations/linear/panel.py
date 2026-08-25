@@ -10,65 +10,57 @@ from textual.binding import Binding
 
 from smorg.core.contract import Item
 from smorg.integrations.linear.source import Comment, Issue, IssueDetail
-from smorg.shell.format import age
+from smorg.shell.detail_pane import SplitDetailPanel
+from smorg.shell.format import age, format_hidden_line
 from smorg.shell.markdown import Markdown
-from smorg.shell.panel import Panel
+from smorg.shell.terminal_palette import StatusColors
 
 _CHANGED_MARK = "●"
 _SELECTED_MARK = "▸"
 
-_CHANGE_STYLE = "green"
-# Linear's state colors mapped to the nearest ANSI names; keys are casefolded.
-_STATUS_STYLES = {
-    "in progress": "bold yellow",
-    "in review": "bold green",
-    "todo": "bold",
-    "blocked": "bold red",
-}
-
 # The longest glyph ("!!!" for Urgent) sets the column width so titles line up.
-_PRIORITY_GLYPHS = {
-    "Urgent": ("!!!", "bold red"),
-    "High": ("!!", "yellow"),
-    "Medium": ("!", None),
-}
-_FALLBACK_GLYPH = ("·", "dim")
 _GLYPH_WIDTH = 3
 
 # Ordered by actionability: doing, shepherding, queued, stuck.
 _STATUS_RANKS = {"in progress": 0, "in review": 1, "todo": 3, "blocked": 5}
 
 
-def _priority_glyph(priority: str) -> tuple[str, str | None]:
-    entry = _PRIORITY_GLYPHS.get(priority, _FALLBACK_GLYPH)
-    glyph, style = entry
-    return glyph.ljust(_GLYPH_WIDTH), style
+def _priority_glyph(priority: str, colors: StatusColors) -> tuple[str, str | None]:
+    if priority == "Urgent":
+        return "!!!".ljust(_GLYPH_WIDTH), f"bold {colors.red}"
+    if priority == "High":
+        return "!!".ljust(_GLYPH_WIDTH), colors.yellow
+    if priority == "Medium":
+        return "!".ljust(_GLYPH_WIDTH), None
+    return "·".ljust(_GLYPH_WIDTH), "dim"
 
 
-def _status_style(status: str, status_type: str) -> str:
+def _status_style(status: str, status_type: str, colors: StatusColors) -> str:
+    normalized = status.casefold()
+    if normalized == "in progress":
+        return f"bold {colors.yellow}"
+    if normalized == "in review":
+        return f"bold {colors.green}"
+    if normalized == "todo":
+        return "bold"
+    if normalized == "blocked":
+        return f"bold {colors.red}"
     # Unknown labels fall back to the stable machine category.
-    fallback = "bold yellow" if status_type == "started" else "bold"
-    return _STATUS_STYLES.get(status.casefold(), fallback)
+    if status_type == "started":
+        return f"bold {colors.yellow}"
+    return "bold"
 
 
 def _status_rank(status: str, status_type: str) -> int:
     known = _STATUS_RANKS.get(status.casefold())
     if known is not None:
         return known
-    return 2 if status_type == "started" else 4
+    if status_type == "started":
+        return 2
+    return 4
 
 
-def _format_hidden_comments_line(hidden: int, lower_bound: bool) -> Text:
-    """(1, False) -> "… 1 earlier comment"
-
-    (1, True) -> "… 1+ earlier comments"
-    """
-    noun = "comment" if hidden == 1 and not lower_bound else "comments"
-    count = f"{hidden}+" if lower_bound else str(hidden)
-    return Text(f"… {count} earlier {noun}", style="dim")
-
-
-class LinearPanel(Panel):
+class LinearPanel(SplitDetailPanel):
     BINDINGS = [
         Binding("up", "cursor_up", "select issue", show=False),
         Binding("down", "cursor_down", "select issue", show=False),
@@ -104,12 +96,10 @@ class LinearPanel(Panel):
             Text(),
             Markdown(description),
         ]
-        if detail.hidden_comments or detail.hidden_is_lower_bound:
+        if detail.comments.hidden or detail.comments.hidden_is_lower_bound:
             parts.append(Text())
-            parts.append(
-                _format_hidden_comments_line(detail.hidden_comments, detail.hidden_is_lower_bound)
-            )
-        for comment in detail.comments:
+            parts.append(format_hidden_line(detail.comments, "comment"))
+        for comment in detail.comments.items:
             parts.append(Text())
             parts.append(self._format_byline(comment))
             parts.append(Markdown(comment.body))
@@ -139,7 +129,9 @@ class LinearPanel(Panel):
 
     def selected_url(self) -> str | None:
         issue = self.selected_item()
-        return issue.url if issue is not None else None
+        if issue is None:
+            return None
+        return issue.url
 
     def action_open_selected(self) -> None:
         issue = self.selected_item()
@@ -199,6 +191,7 @@ class LinearPanel(Panel):
     def render_ready(self) -> Text:
         issues = self._grouped()
         cursor = self._clamped_cursor(len(issues))
+        colors = self.status_colors()
         # One width for the whole list; a per-group width would shift the title column at every
         # group boundary.
         id_width = max((len(issue.id) for issue in issues), default=0)
@@ -207,10 +200,9 @@ class LinearPanel(Panel):
         for index, issue in enumerate(issues):
             if issue.status != current_status:
                 current_status = issue.status
-                lines.append(
-                    Text(current_status, style=_status_style(issue.status, issue.status_type))
-                )
-            lines.append(self._format_row(issue, index == cursor, id_width))
+                style = _status_style(issue.status, issue.status_type, colors)
+                lines.append(Text(current_status, style=style))
+            lines.append(self._format_row(issue, index == cursor, id_width, colors))
         body = Text("\n").join(lines)
         # One row per issue: a wrapped title orphans its tail under the id column and breaks
         # the grid. The full title is one "o" away.
@@ -218,7 +210,9 @@ class LinearPanel(Panel):
         body.overflow = "ellipsis"
         return body
 
-    def _format_row(self, issue: Issue, selected: bool, id_width: int) -> Text:
+    def _format_row(
+        self, issue: Issue, selected: bool, id_width: int, colors: StatusColors
+    ) -> Text:
         if selected:
             row = Text(style="bold")
             marker = f"{_SELECTED_MARK} "
@@ -230,7 +224,7 @@ class LinearPanel(Panel):
         changed = self.seen.is_changed(self.integration_id, issue)
         if changed:
             mark_char = _CHANGED_MARK
-            mark_style = _CHANGE_STYLE
+            mark_style = colors.green
         else:
             mark_char = " "
             mark_style = None
@@ -238,7 +232,7 @@ class LinearPanel(Panel):
         row.append(" ")
         row.append(issue.id.ljust(id_width), style="dim")
         row.append("  ")
-        glyph, glyph_style = _priority_glyph(issue.priority)
+        glyph, glyph_style = _priority_glyph(issue.priority, colors)
         row.append(glyph, style=glyph_style)
         row.append(" ")
         row.append(issue.title)

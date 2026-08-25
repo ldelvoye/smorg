@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from rich.text import Text
+
 from smorg.auth.store import now
+from smorg.core.contract import Newest
 
 
 def age(moment: datetime) -> str:
@@ -51,3 +54,19 @@ def _symbolize_part(part: str) -> str:
     if len(part) > 1 and part.startswith("^"):
         return f"^ + {part[1:]}"
     return part
+
+
+def format_hidden_line[T](shown: Newest[T], noun: str) -> Text:
+    """(hidden=1, "review") -> "… 1 earlier review"
+
+    (hidden=1 at the cap, "review") -> "… 1+ earlier reviews"
+    """
+    if shown.hidden == 1 and not shown.hidden_is_lower_bound:
+        label = noun
+    else:
+        label = f"{noun}s"
+    if shown.hidden_is_lower_bound:
+        count = f"{shown.hidden}+"
+    else:
+        count = str(shown.hidden)
+    return Text(f"… {count} earlier {label}", style="dim")

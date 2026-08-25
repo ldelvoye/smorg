@@ -5,12 +5,12 @@ from datetime import timedelta
 
 from rich.console import Console
 
+from smorg.core.contract import Newest
 from smorg.integrations.github.panel import GitHubPanel
 from smorg.integrations.github.source import (
     CheckSummary,
     Comment,
     LineCounts,
-    Newest,
     PullRequestDetail,
     Reviewer,
     ReviewerState,

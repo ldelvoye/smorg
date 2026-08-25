@@ -15,18 +15,18 @@ from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.widgets import Static
 
+from smorg.core.contract import Newest
 from smorg.integrations.github.loading import GitHubLoading
 from smorg.integrations.github.source import (
     ABSENT_COUNT,
     CheckSummary,
     Comment,
-    Newest,
     PullRequest,
     PullRequestDetail,
     Reviewer,
     ReviewerState,
 )
-from smorg.shell.format import age
+from smorg.shell.format import age, format_hidden_line
 from smorg.shell.markdown import Markdown
 from smorg.shell.panel import ScrollGutter
 from smorg.shell.terminal_palette import StatusColors
@@ -42,22 +42,6 @@ _CARD_TITLE_STYLE = "bold not dim"
 
 def _has_any[T](shown: Newest[T]) -> bool:
     return bool(shown.items) or shown.hidden > 0 or shown.hidden_is_lower_bound
-
-
-def _format_hidden_line[T](shown: Newest[T], noun: str) -> Text:
-    """(hidden=1, "review") -> "… 1 earlier review"
-
-    (hidden=1 at the cap, "review") -> "… 1+ earlier reviews"
-    """
-    if shown.hidden == 1 and not shown.hidden_is_lower_bound:
-        label = noun
-    else:
-        label = f"{noun}s"
-    if shown.hidden_is_lower_bound:
-        count = f"{shown.hidden}+"
-    else:
-        count = str(shown.hidden)
-    return Text(f"… {count} earlier {label}", style="dim")
 
 
 def _format_card(title: Text, body: list[RenderableType]) -> Card:
@@ -225,7 +209,7 @@ def _format_comment_heading(comment: Comment) -> Text:
 def _format_comments_card(comments: Newest[Comment]) -> Card:
     body: list[RenderableType] = []
     if comments.hidden or comments.hidden_is_lower_bound:
-        body.append(_format_hidden_line(comments, "comment"))
+        body.append(format_hidden_line(comments, "comment"))
     for comment in comments.items:
         if body:
             body.append(Text())

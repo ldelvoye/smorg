@@ -35,7 +35,10 @@ def paging_handler(requests: list) -> Callable[[httpx.Request], httpx.Response]:
         if body["method"] != "tools/call":
             return httpx.Response(202)
         requests.append(body["params"]["arguments"])
-        page = "page2" if body["params"]["arguments"].get("cursor") else "page1"
+        if body["params"]["arguments"].get("cursor"):
+            page = "page2"
+        else:
+            page = "page1"
         return sse(PAGES[page])
 
     return handler
@@ -248,7 +251,9 @@ def detail_handler(overrides: dict | None = None) -> Callable[[httpx.Request], h
         if body["method"] != "tools/call":
             return httpx.Response(202)
         name = body["params"]["name"]
-        return sse(payloads["issue"] if name == "get_issue" else payloads["comments"])
+        if name == "get_issue":
+            return sse(payloads["issue"])
+        return sse(payloads["comments"])
 
     return handler
 
@@ -265,8 +270,9 @@ def test_detail_carries_description_assignee_and_capped_ascending_comments():
     detail = detail_with(detail_handler())
     assert detail.description == "First line.\nSecond line."
     assert detail.assignee == "Lucas Delvoye"
-    assert [comment.body for comment in detail.comments] == ["c2", "c3", "c4", "middle", "newest"]
-    assert detail.comments[-1].author == "alice"
+    bodies = [comment.body for comment in detail.comments.items]
+    assert bodies == ["c2", "c3", "c4", "middle", "newest"]
+    assert detail.comments.items[-1].author == "alice"
 
 
 def test_a_null_description_and_assignee_become_empty_strings():
@@ -293,7 +299,7 @@ def test_comment_author_is_sanitized_at_the_source():
     comments = json.loads(json.dumps(DETAIL["comments"]))
     comments["comments"][0]["author"] = {"id": "u1", "name": "Al\x1b[31mice"}
     detail = detail_with(detail_handler({"comments": comments}))
-    assert "\x1b" not in detail.comments[-1].author
+    assert "\x1b" not in detail.comments.items[-1].author
 
 
 # --- Linear's own <issue>/<user>/<project>/<document> tags are unwrapped ---
@@ -356,8 +362,8 @@ def test_comment_bodies_with_no_href_keep_only_inner_text():
     comments = json.loads(json.dumps(DETAIL["comments"]))
     comments["comments"][0]["body"] = 'blocked by <issue id="i2">ENG-3</issue>'
     detail = detail_with(detail_handler({"comments": comments}))
-    assert detail.comments[-1].body == "blocked by ENG-3"
-    assert "<issue" not in detail.comments[-1].body
+    assert detail.comments.items[-1].body == "blocked by ENG-3"
+    assert "<issue" not in detail.comments.items[-1].body
 
 
 def test_comment_bodies_with_an_https_href_get_the_same_link_rewrite():
@@ -366,7 +372,7 @@ def test_comment_bodies_with_an_https_href_get_the_same_link_rewrite():
         'blocked by <issue id="i2" href="https://linear.app/x/issue/ENG-3">ENG-3</issue>'
     )
     detail = detail_with(detail_handler({"comments": comments}))
-    assert detail.comments[-1].body == "blocked by [ENG-3](https://linear.app/x/issue/ENG-3)"
+    assert detail.comments.items[-1].body == "blocked by [ENG-3](https://linear.app/x/issue/ENG-3)"
 
 
 def test_a_hand_typed_reference_gains_no_link():
@@ -405,32 +411,32 @@ def _synthetic_comments(count: int, has_next_page: bool = False) -> dict:
 
 def test_hidden_comment_count_reflects_how_many_were_dropped_to_the_limit():
     detail = detail_with(detail_handler({"comments": _synthetic_comments(8)}))
-    assert detail.hidden_comments == 3
-    assert detail.hidden_is_lower_bound is False
+    assert detail.comments.hidden == 3
+    assert detail.comments.hidden_is_lower_bound is False
 
 
 def test_hidden_comment_count_is_exactly_one_for_the_shared_fixture():
     # The shared DETAIL fixture carries 6 raw comments, one past COMMENT_LIMIT.
     detail = detail_with(detail_handler())
-    assert detail.hidden_comments == 1
-    assert detail.hidden_is_lower_bound is False
+    assert detail.comments.hidden == 1
+    assert detail.comments.hidden_is_lower_bound is False
 
 
 def test_hidden_comment_count_is_a_lower_bound_when_the_fetch_limit_is_hit():
     detail = detail_with(detail_handler({"comments": _synthetic_comments(25)}))
-    assert detail.hidden_comments == 20
-    assert detail.hidden_is_lower_bound is True
+    assert detail.comments.hidden == 20
+    assert detail.comments.hidden_is_lower_bound is True
 
 
 def test_hidden_comment_count_is_a_lower_bound_when_the_server_reports_more_pages():
     detail = detail_with(detail_handler({"comments": _synthetic_comments(6, has_next_page=True)}))
-    assert detail.hidden_is_lower_bound is True
+    assert detail.comments.hidden_is_lower_bound is True
 
 
 def test_no_hidden_comments_when_everything_fetched_fits_the_limit():
     detail = detail_with(detail_handler({"comments": _synthetic_comments(3)}))
-    assert detail.hidden_comments == 0
-    assert detail.hidden_is_lower_bound is False
+    assert detail.comments.hidden == 0
+    assert detail.comments.hidden_is_lower_bound is False
 
 
 # --- Truncation: sanitize -> unwrap -> cap, so a cut can never dangle a tag ---
@@ -472,14 +478,14 @@ def test_an_over_limit_comment_body_gets_the_same_capping_treatment():
     comments = json.loads(json.dumps(DETAIL["comments"]))
     comments["comments"][0]["body"] = "y" * (COMMENT_BODY_LIMIT + 500)
     detail = detail_with(detail_handler({"comments": comments}))
-    assert detail.comments[-1].body == "y" * COMMENT_BODY_LIMIT + "\n\n… (truncated)"
+    assert detail.comments.items[-1].body == "y" * COMMENT_BODY_LIMIT + "\n\n… (truncated)"
 
 
 def test_an_under_limit_comment_body_is_unchanged():
     comments = json.loads(json.dumps(DETAIL["comments"]))
     comments["comments"][0]["body"] = "short reply"
     detail = detail_with(detail_handler({"comments": comments}))
-    assert detail.comments[-1].body == "short reply"
+    assert detail.comments.items[-1].body == "short reply"
 
 
 def test_a_comment_without_a_body_is_malformed():
@@ -493,7 +499,7 @@ def test_a_comment_without_an_author_degrades_to_anonymous():
     comments = json.loads(json.dumps(DETAIL["comments"]))
     comments["comments"][0]["author"] = None
     detail = detail_with(detail_handler({"comments": comments}))
-    assert detail.comments[-1].author == ""
+    assert detail.comments.items[-1].author == ""
 
 
 def test_detail_reuses_the_cached_handshake():
@@ -507,7 +513,9 @@ def test_detail_reuses_the_cached_handshake():
         if body["method"] != "tools/call":
             return httpx.Response(202)
         name = body["params"]["name"]
-        return sse(DETAIL["issue"] if name == "get_issue" else DETAIL["comments"])
+        if name == "get_issue":
+            return sse(DETAIL["issue"])
+        return sse(DETAIL["comments"])
 
     detail_with(handler)
     assert methods.count("initialize") == 1
