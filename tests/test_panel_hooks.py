@@ -5,7 +5,7 @@ from textual.message import Message
 
 from smorg.core.contract import Item
 from smorg.shell.app import SmorgApp
-from smorg.shell.panel import Panel, ScrollGutter
+from smorg.shell.panel import Panel
 from smorg.shell.terminal_palette import TerminalPalette
 
 
@@ -19,10 +19,6 @@ def test_build_detail_region_matches_what_compose_mounts():
     assert isinstance(region, VerticalScroll)
     assert region.id == "detail"
     assert region.can_focus is False
-
-
-def test_the_scroll_gutter_is_public_for_other_scroll_regions():
-    assert ScrollGutter is not None
 
 
 def test_the_app_exposes_the_palette_it_was_given():

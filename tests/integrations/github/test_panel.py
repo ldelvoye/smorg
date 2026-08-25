@@ -23,6 +23,19 @@ from smorg.shell.panel import ScrollGutter
 from .helpers import PanelHarness, panel_with, profile_item, pull
 
 
+def detail_with(**overrides) -> PullRequestDetail:
+    fields = {
+        "body": "",
+        "base": "main",
+        "head": "tall",
+        "reviewers": (),
+        "comments": Newest(items=()),
+        "counts": LineCounts(),
+        "checks": UNAVAILABLE_CHECKS,
+    }
+    return PullRequestDetail(**(fields | overrides))
+
+
 def test_the_panel_and_its_views_never_fetch():
     """The seam the whole design rests on, enforced rather than trusted."""
     github_dir = Path("src") / "smorg" / "integrations" / "github"
@@ -136,14 +149,19 @@ async def test_the_tab_has_no_detail_region_and_still_refreshes():
         panel.refresh()
 
 
+async def open_pull_request(pilot, panel: GitHubPanel) -> None:
+    """Show the inbox, then press enter to open its first pull request."""
+    panel.show_view(GitHubView.INBOX)
+    await pilot.pause()
+    await pilot.press("enter")
+    await pilot.pause()
+
+
 async def test_enter_opens_the_pull_request_view_and_escape_returns(tmp_path, monkeypatch):
     monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path))
     panel = panel_with(pull(42))
     async with PanelHarness(panel).run_test() as pilot:
-        panel.show_view(GitHubView.INBOX)
-        await pilot.pause()
-
-        await pilot.press("enter")
+        await open_pull_request(pilot, panel)
 
         assert panel.active_view is GitHubView.PULL_REQUEST
         assert panel.viewed is not None and panel.viewed.number == 42
@@ -160,10 +178,7 @@ async def test_opening_a_pull_request_marks_it_seen(tmp_path, monkeypatch):
     seen = SeenState({})
     panel = panel_with(pull(42), seen=seen)
     async with PanelHarness(panel).run_test() as pilot:
-        panel.show_view(GitHubView.INBOX)
-        await pilot.pause()
-
-        await pilot.press("enter")
+        await open_pull_request(pilot, panel)
 
         assert not seen.is_changed("github", pull(42))
 
@@ -172,9 +187,7 @@ async def test_a_refresh_cannot_steal_the_viewed_pull_request(tmp_path, monkeypa
     monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path))
     panel = panel_with(pull(42))
     async with PanelHarness(panel).run_test() as pilot:
-        panel.show_view(GitHubView.INBOX)
-        await pilot.pause()
-        await pilot.press("enter")
+        await open_pull_request(pilot, panel)
 
         panel.items = (pull(51, Category.DRAFT),)
         panel.refresh()
@@ -197,9 +210,7 @@ async def test_the_view_scrolls_behind_the_gutter_not_a_scrollbar(tmp_path, monk
     monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path))
     panel = panel_with(pull(42))
     async with PanelHarness(panel).run_test() as pilot:
-        panel.show_view(GitHubView.INBOX)
-        await pilot.pause()
-        await pilot.press("enter")
+        await open_pull_request(pilot, panel)
 
         view = panel.query_one(GitHubPullRequestView)
         assert view.query(ScrollGutter)
@@ -210,58 +221,29 @@ async def test_the_gutter_shows_the_down_arrow_before_any_scroll(tmp_path, monke
     monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path))
     panel = panel_with(pull(42))
     async with PanelHarness(panel).run_test() as pilot:
-        panel.show_view(GitHubView.INBOX)
-        await pilot.pause()
-        await pilot.press("enter")
+        await open_pull_request(pilot, panel)
 
         long_body = "\n\n".join(f"paragraph {index}" for index in range(80))
-        shown = PullRequestDetail(
-            body=long_body,
-            base="main",
-            head="tall",
-            reviewers=(),
-            comments=Newest(items=()),
-            counts=LineCounts(),
-            checks=UNAVAILABLE_CHECKS,
-        )
+        shown = detail_with(body=long_body)
         panel.show_detail(GitHubPanel.detail_key(pull(42)), shown)
+        await pilot.pause()
         await pilot.pause()
 
         gutter = panel.query_one(GitHubPullRequestView).query_one(ScrollGutter)
         assert "↓" in str(gutter.content)
 
 
-# --- Theme-aware status colors, without a mounted app ---
-
-
-def test_status_colors_default_to_the_dark_shades_without_an_app():
-    colors = panel_with().status_colors()
-
-    assert colors.red == "#f85149"
-
-
 async def test_opening_a_pull_request_shows_the_octocat_until_detail_lands(tmp_path, monkeypatch):
     monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path))
     panel = panel_with(pull(42))
     async with PanelHarness(panel).run_test() as pilot:
-        panel.show_view(GitHubView.INBOX)
-        await pilot.pause()
-        await pilot.press("enter")
-        await pilot.pause()
+        await open_pull_request(pilot, panel)
 
         view = panel.query_one(GitHubPullRequestView)
         assert view.query_one(GitHubLoading).display is True
         assert view.query_one("#pull-request-body").display is False
 
-        shown = PullRequestDetail(
-            body="hello",
-            base="main",
-            head="tall",
-            reviewers=(),
-            comments=Newest(items=()),
-            counts=LineCounts(),
-            checks=UNAVAILABLE_CHECKS,
-        )
+        shown = detail_with(body="hello")
         panel.show_detail(GitHubPanel.detail_key(pull(42)), shown)
         await pilot.pause()
 
@@ -273,11 +255,17 @@ async def test_escape_still_works_while_the_detail_loads(tmp_path, monkeypatch):
     monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path))
     panel = panel_with(pull(42))
     async with PanelHarness(panel).run_test() as pilot:
-        panel.show_view(GitHubView.INBOX)
-        await pilot.pause()
-        await pilot.press("enter")
-        await pilot.pause()
+        await open_pull_request(pilot, panel)
 
         await pilot.press("escape")
 
         assert panel.active_view is GitHubView.INBOX
+
+
+# --- Theme-aware status colors, without a mounted app ---
+
+
+def test_status_colors_default_to_the_dark_shades_without_an_app():
+    colors = panel_with().status_colors()
+
+    assert colors.red == "#f85149"

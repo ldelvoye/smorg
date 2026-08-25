@@ -803,6 +803,7 @@ async def test_the_gutter_shows_a_down_arrow_then_switches_to_an_up_arrow():
         await open_detail(pilot, panel)
         panel.show_detail(panel.detail_key(issue("ENG-1")), detail(long_description))
         await pilot.pause()
+        await pilot.pause()
 
         gutter = panel.query_one(ScrollGutter)
 

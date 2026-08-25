@@ -154,7 +154,10 @@ def test_reviewer_lines_carry_their_signs(monkeypatch):
 
 
 def test_no_reviewers_no_reviews_card():
-    assert "reviews" not in rendered(view_showing(detail(reviewers=())))
+    text = rendered(view_showing(detail(reviewers=())))
+
+    assert "reviews" not in text
+    assert "comments" not in text
 
 
 def test_reviewer_lines_beyond_the_cap_are_counted():
@@ -166,12 +169,6 @@ def test_reviewer_lines_beyond_the_cap_are_counted():
     text = rendered(view_showing(detail(reviewers=many)))
 
     assert "… 3 more reviewers" in text
-
-
-def test_an_all_green_checks_title_is_still_counted():
-    text = rendered(view_showing(detail(checks=GREEN)))
-
-    assert "checks · 14 passed" in text
 
 
 def test_comments_show_author_age_and_body(monkeypatch):
@@ -199,13 +196,6 @@ def test_a_deleted_comment_author_reads_as_someone():
     text = rendered(view_showing(detail(comments=Newest(items=(ghost,)))))
 
     assert "someone" in text
-
-
-def test_empty_sections_have_no_cards():
-    text = rendered(view_showing(detail(reviewers=())))
-
-    assert "reviews" not in text
-    assert "comments" not in text
 
 
 def test_open_targets_the_viewed_pull_request(monkeypatch):

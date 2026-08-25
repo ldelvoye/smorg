@@ -35,9 +35,11 @@ async def test_the_animation_runs_only_while_shown():
     async with PanelHarness(panel).run_test() as pilot:
         loading = panel.query_one(GitHubLoading)
         await pilot.pause()
+        await pilot.pause()
         assert loading.is_animating is True
         panel.state = PanelState.READY
         panel.refresh()
+        await pilot.pause()
         await pilot.pause()
         assert loading.is_animating is False
 
