@@ -55,39 +55,6 @@ def _format_hidden_line[T](shown: Newest[T], noun: str) -> Text:
     return Text(f"… {count} earlier {label}", style="dim")
 
 
-def _format_review_label(state: str) -> str:
-    """ "CHANGES_REQUESTED" -> "changes requested" """
-    return state.replace("_", " ").casefold()
-
-
-def _format_review_line(review: Review) -> Text:
-    line = Text(style="dim")
-    if review.author:
-        author = review.author
-    else:
-        author = "someone"
-    line.append(author)
-    line.append(" · ")
-    line.append(_format_review_label(review.state))
-    if review.submitted_at is not None:
-        line.append(" · ")
-        line.append(age(review.submitted_at))
-    return line
-
-
-def _format_comment_heading(comment: Comment) -> Text:
-    line = Text(style="dim")
-    if comment.author:
-        author = comment.author
-    else:
-        author = "someone"
-    line.append(author)
-    if comment.submitted_at is not None:
-        line.append(" · ")
-        line.append(age(comment.submitted_at))
-    return line
-
-
 def _format_card(title: Text, body: list[RenderableType]) -> Card:
     return Card(
         Group(*body),
@@ -112,13 +79,9 @@ def _format_header_lines(pr: PullRequest, detail: PullRequestDetail | None) -> l
     stats = _format_stats_line(detail)
     if stats is not None:
         lines.append(stats)
-    if detail.reviewers:
-        lines.append(Text(f"waiting on {' · '.join(detail.reviewers)}", style="dim"))
     checks = detail.checks
     if not checks.available:
         lines.append(Text("no checks", style="dim"))
-    elif checks.failed == 0 and checks.running == 0 and checks.passed > 0:
-        lines.append(_format_all_green(checks))
     return lines
 
 
@@ -147,16 +110,6 @@ def _format_stats_line(detail: PullRequestDetail) -> Text | None:
     return line
 
 
-def _format_all_green(checks: CheckSummary) -> Text:
-    line = Text()
-    line.append("✓ ", style="green")
-    if checks.truncated:
-        line.append(f"{checks.passed}+ checks passed", style="dim")
-    else:
-        line.append(f"all {checks.passed} checks passed", style="dim")
-    return line
-
-
 def _format_checks_card(checks: CheckSummary) -> Card:
     parts = ["checks"]
     if checks.failed:
@@ -170,8 +123,10 @@ def _format_checks_card(checks: CheckSummary) -> Card:
         label = f"{label} · …"
     if checks.failed:
         title = Text(label, style="bold red")
-    else:
+    elif checks.running:
         title = Text(label, style="bold yellow")
+    else:
+        title = Text(label, style="bold")
     body: list[RenderableType] = []
     for name in checks.failed_names:
         line = Text()
@@ -181,7 +136,48 @@ def _format_checks_card(checks: CheckSummary) -> Card:
     if checks.hidden_failed:
         body.append(Text(f"… {checks.hidden_failed} more failed", style="dim"))
     if not body:
-        body.append(Text("all passing so far", style="dim"))
+        if checks.running:
+            body.append(Text("all passing so far", style="dim"))
+        else:
+            line = Text()
+            line.append("✓ ", style="green")
+            if checks.truncated:
+                line.append(f"{checks.passed}+ checks passed", style="dim")
+            else:
+                line.append(f"all {checks.passed} checks passed", style="dim")
+            body.append(line)
+    return _format_card(title, body)
+
+
+def _format_review_label(state: str) -> str:
+    """ "CHANGES_REQUESTED" -> "changes requested" """
+    return state.replace("_", " ").casefold()
+
+
+def _format_review_line(review: Review) -> Text:
+    line = Text(style="dim")
+    if review.author:
+        author = review.author
+    else:
+        author = "someone"
+    line.append(author)
+    line.append(" · ")
+    line.append(_format_review_label(review.state))
+    if review.submitted_at is not None:
+        line.append(" · ")
+        line.append(age(review.submitted_at))
+    return line
+
+
+def _format_reviews_card(reviews: Newest[Review], reviewers: tuple[str, ...]) -> Card:
+    body: list[RenderableType] = []
+    if reviewers:
+        body.append(Text(f"waiting on {' · '.join(reviewers)}", style="dim"))
+    if reviews.hidden or reviews.hidden_is_lower_bound:
+        body.append(_format_hidden_line(reviews, "review"))
+    for review in reviews.items:
+        body.append(_format_review_line(review))
+    title = Text(f"reviews ({len(reviews.items)})", style="bold")
     return _format_card(title, body)
 
 
@@ -196,14 +192,17 @@ def _format_description_card(detail: PullRequestDetail) -> Card:
     return _format_card(Text("description", style="bold"), [content])
 
 
-def _format_reviews_card(reviews: Newest[Review]) -> Card:
-    body: list[RenderableType] = []
-    if reviews.hidden or reviews.hidden_is_lower_bound:
-        body.append(_format_hidden_line(reviews, "review"))
-    for review in reviews.items:
-        body.append(_format_review_line(review))
-    title = Text(f"reviews ({len(reviews.items)})", style="bold")
-    return _format_card(title, body)
+def _format_comment_heading(comment: Comment) -> Text:
+    line = Text(style="dim")
+    if comment.author:
+        author = comment.author
+    else:
+        author = "someone"
+    line.append(author)
+    if comment.submitted_at is not None:
+        line.append(" · ")
+        line.append(age(comment.submitted_at))
+    return line
 
 
 def _format_comments_card(comments: Newest[Comment]) -> Card:
@@ -223,13 +222,13 @@ def _format_comments_card(comments: Newest[Comment]) -> Card:
 def _format_sections(detail: PullRequestDetail) -> list[RenderableType]:
     parts: list[RenderableType] = []
     checks = detail.checks
-    if checks.available and (checks.failed or checks.running):
+    if checks.available and (checks.failed or checks.running or checks.passed):
         parts.append(_format_checks_card(checks))
         parts.append(Text())
-    parts.append(_format_description_card(detail))
-    if _has_any(detail.reviews):
+    if _has_any(detail.reviews) or detail.reviewers:
+        parts.append(_format_reviews_card(detail.reviews, detail.reviewers))
         parts.append(Text())
-        parts.append(_format_reviews_card(detail.reviews))
+    parts.append(_format_description_card(detail))
     if _has_any(detail.comments):
         parts.append(Text())
         parts.append(_format_comments_card(detail.comments))

@@ -82,11 +82,11 @@ def test_absent_counts_hide_their_segments():
     assert "files" not in text
 
 
-def test_all_green_checks_collapse_to_one_line():
+def test_all_green_checks_get_a_card_with_a_passing_line():
     text = rendered(view_showing(detail(checks=GREEN)))
 
-    assert "all 14 checks passed" in text
-    assert "checks ·" not in text
+    assert "checks · 14 passed" in text
+    assert "✓ all 14 checks passed" in text
 
 
 def test_a_truncated_green_run_does_not_claim_all():
@@ -94,6 +94,7 @@ def test_a_truncated_green_run_does_not_claim_all():
 
     assert "50+ checks passed" in text
     assert "all" not in text.split("checks passed")[0].splitlines()[-1]
+    assert "checks · 50 passed · …" in text
 
 
 def test_failed_checks_get_a_card_naming_them():
@@ -192,7 +193,26 @@ def test_requested_reviewers_show_as_a_waiting_line():
     text = rendered(view_showing(detail(reviewers=("alice", "#sre-production-engineering"))))
 
     assert "waiting on alice · #sre-production-engineering" in text
+    assert "reviews (1)" in text
 
 
 def test_no_requested_reviewers_no_waiting_line():
     assert "waiting on" not in rendered(view_showing(detail()))
+
+
+def test_reviewers_without_reviews_still_get_the_card():
+    shown = detail(reviews=Newest(items=()), reviewers=("alice",))
+
+    text = rendered(view_showing(shown))
+
+    assert "reviews (0)" in text
+    assert "waiting on alice" in text
+
+
+def test_the_cards_read_checks_reviews_description_comments():
+    text = rendered(view_showing(detail(checks=checks())))
+
+    checks_at = text.index("checks ·")
+    reviews_at = text.index("reviews (")
+    description_at = text.index("description")
+    assert checks_at < reviews_at < description_at
