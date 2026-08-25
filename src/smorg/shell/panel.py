@@ -75,6 +75,7 @@ class ScrollGutter(Static):
         region = self.parent
         if isinstance(region, VerticalScroll):
             self.watch(region, "scroll_y", self.refresh_arrows, init=False)
+            self.watch(region, "virtual_size", self.refresh_arrows, init=False)
         self.refresh_arrows()
 
     def on_resize(self, event: events.Resize) -> None:
@@ -315,11 +316,6 @@ class Panel(Vertical):
         if anchor != self._detail_anchor:
             self._detail_anchor = anchor
             region.scroll_home(animate=False)
-        # New content can move max_scroll_y without moving scroll_y (for example "loading…"
-        # replaced by the real detail), and the gutter only watches scroll_y, so its arrows are
-        # refreshed explicitly. Deferred until after the next refresh because virtual_size is
-        # only recomputed when layout runs.
-        self.call_after_refresh(self.query_one(ScrollGutter).refresh_arrows)
 
     def body_text(self) -> str:
         if self.state is PanelState.LOADING:

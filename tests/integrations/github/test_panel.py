@@ -5,7 +5,14 @@ from pathlib import Path
 
 from smorg.core.state import SeenState
 from smorg.integrations.github.panel import GitHubPanel
-from smorg.integrations.github.source import PROFILE_ID, Category
+from smorg.integrations.github.source import (
+    PROFILE_ID,
+    UNAVAILABLE_CHECKS,
+    Category,
+    LineCounts,
+    Newest,
+    PullRequestDetail,
+)
 from smorg.integrations.github.views import GitHubView
 from smorg.integrations.github.views.inbox import GitHubInbox
 from smorg.integrations.github.views.menu import GitHubMenu
@@ -196,3 +203,29 @@ async def test_the_view_scrolls_behind_the_gutter_not_a_scrollbar(tmp_path, monk
         view = panel.query_one(GitHubPullRequestView)
         assert view.query(ScrollGutter)
         assert view.styles.scrollbar_size_vertical == 0
+
+
+async def test_the_gutter_shows_the_down_arrow_before_any_scroll(tmp_path, monkeypatch):
+    monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path))
+    panel = panel_with(pull(42))
+    async with PanelHarness(panel).run_test() as pilot:
+        panel.show_view(GitHubView.INBOX)
+        await pilot.pause()
+        await pilot.press("enter")
+
+        long_body = "\n\n".join(f"paragraph {index}" for index in range(80))
+        shown = PullRequestDetail(
+            body=long_body,
+            base="main",
+            head="tall",
+            reviewers=(),
+            reviews=Newest(items=()),
+            comments=Newest(items=()),
+            counts=LineCounts(),
+            checks=UNAVAILABLE_CHECKS,
+        )
+        panel.show_detail(GitHubPanel.detail_key(pull(42)), shown)
+        await pilot.pause()
+
+        gutter = panel.query_one(GitHubPullRequestView).query_one(ScrollGutter)
+        assert "↓" in str(gutter.content)
