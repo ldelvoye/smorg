@@ -52,6 +52,15 @@ class Item:
 
 
 @dataclass(frozen=True)
+class Newest[T]:
+    """The newest slice of a list too long to show whole."""
+
+    items: tuple[T, ...]
+    hidden: int = 0
+    hidden_is_lower_bound: bool = False
+
+
+@dataclass(frozen=True)
 class AuthPath:
     id: str
     method: OAuthMethod | TokenMethod

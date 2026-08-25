@@ -17,11 +17,13 @@ from textual import events
 from textual.app import ComposeResult, RenderResult
 from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
+from textual.types import NoActiveAppError
 from textual.widgets import Static
 
 from smorg.core.config import ConfigError
 from smorg.core.contract import Item
 from smorg.core.state import SeenState
+from smorg.shell.terminal_palette import StatusColors, TerminalPalette, status_colors
 
 
 class PanelState(StrEnum):
@@ -130,6 +132,19 @@ class Panel(Vertical):
         Override it alongside any `render_ready()` that does not return a Text, such as a grid.
         """
         return "\n".join(item.id for item in self.items)
+
+    def _terminal_background(self) -> tuple[int, int, int] | None:
+        try:
+            palette = getattr(self.app, "palette", None)
+        except NoActiveAppError:
+            return None
+        if isinstance(palette, TerminalPalette):
+            return palette.background
+        return None
+
+    def status_colors(self) -> StatusColors:
+        """Semantic red/yellow/green picked to sit on this terminal's background."""
+        return status_colors(self._terminal_background())
 
     @staticmethod
     def detail_key(item: Item) -> tuple[str, str]:

@@ -7,7 +7,7 @@ from smorg.core.contract import Item
 from smorg.shell.app import SmorgApp
 from smorg.shell.detail_pane import SplitDetailPanel
 from smorg.shell.panel import Panel
-from smorg.shell.terminal_palette import TerminalPalette
+from smorg.shell.terminal_palette import StatusColors, TerminalPalette
 
 
 def test_help_bindings_default_to_the_class_bindings():
@@ -26,6 +26,11 @@ def test_the_pane_subclass_composes_the_detail_region():
 def test_a_bare_panel_composes_no_detail_region():
     widgets = list(Panel().compose())
     assert not any(widget.id == "detail" for widget in widgets)
+
+
+def test_a_bare_panel_with_no_app_reports_the_dark_status_colors():
+    expected = StatusColors(red="#f85149", yellow="#d29922", green="#3fb950")
+    assert Panel().status_colors() == expected
 
 
 def test_the_app_exposes_the_palette_it_was_given():

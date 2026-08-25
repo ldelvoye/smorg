@@ -15,7 +15,7 @@ from github.PullRequestReview import PullRequestReview
 from github.Repository import Repository
 
 from smorg.auth.store import Credentials
-from smorg.core.contract import Item, Malformed
+from smorg.core.contract import Item, Malformed, Newest
 from smorg.core.text import sanitize_block, sanitize_line, truncate
 from smorg.integrations.github.source.client import connect, first, github_errors
 from smorg.integrations.github.source.search import PullRequest
@@ -73,15 +73,6 @@ class Comment:
     author: str
     submitted_at: datetime | None
     body: str
-
-
-@dataclass(frozen=True)
-class Newest[T]:
-    """The newest slice of a list too long to show whole."""
-
-    items: tuple[T, ...]
-    hidden: int = 0
-    hidden_is_lower_bound: bool = False
 
 
 @dataclass(frozen=True)

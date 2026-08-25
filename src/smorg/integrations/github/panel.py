@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from textual.app import ComposeResult
-from textual.types import NoActiveAppError
 
 from smorg.integrations.github.loading import GitHubLoading
 from smorg.integrations.github.source import Profile, PullRequest
@@ -14,12 +13,7 @@ from smorg.integrations.github.views.inbox import GitHubInbox
 from smorg.integrations.github.views.menu import GitHubMenu
 from smorg.integrations.github.views.pull_request import GitHubPullRequestView
 from smorg.shell.panel import Panel, PanelState
-from smorg.shell.terminal_palette import (
-    StatusColors,
-    TerminalPalette,
-    relative_luminance,
-    status_colors,
-)
+from smorg.shell.terminal_palette import relative_luminance
 
 _GREEN_RAMP_DARK = ("#006d32", "#26a641", "#39d353", "#7ee787")
 _GREEN_RAMP_LIGHT = ("#aceebb", "#4ac26b", "#1a7f37", "#044f1e")
@@ -141,22 +135,9 @@ class GitHubPanel(Panel):
                 return item
         return None
 
-    def _terminal_background(self) -> tuple[int, int, int] | None:
-        try:
-            palette = getattr(self.app, "palette", None)
-        except NoActiveAppError:
-            return None
-        if isinstance(palette, TerminalPalette):
-            return palette.background
-        return None
-
     def green_ramp(self) -> tuple[str, str, str, str]:
         """GitHub's contribution greens, picked to sit on this terminal's background."""
         return _ramp_for_background(self._terminal_background())
-
-    def status_colors(self) -> StatusColors:
-        """Semantic red/yellow/green picked to sit on this terminal's background."""
-        return status_colors(self._terminal_background())
 
     def unseen_count(self) -> int:
         integration_id = self.integration_id
