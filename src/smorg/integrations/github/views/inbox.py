@@ -19,11 +19,9 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.widgets import Static
 
-from smorg.core.contract import Item
-from smorg.integrations.github.source import Category, PullRequest, PullRequestDetail, Review
+from smorg.integrations.github.source import Category, PullRequest
 from smorg.integrations.github.views import CHANGE_STYLE, CHANGED_MARK, SELECTED_MARK, GitHubView
 from smorg.shell.format import age
-from smorg.shell.markdown import Markdown
 from smorg.shell.panel import PanelState
 
 if TYPE_CHECKING:
@@ -95,27 +93,6 @@ def _format_meta(pr: PullRequest) -> str:
     return f"{pr.author} · {when}"
 
 
-def _format_review_label(state: str) -> str:
-    """ "CHANGES_REQUESTED" -> "changes requested" """
-    return state.replace("_", " ").casefold()
-
-
-def _format_hidden_reviews_line(hidden: int, lower_bound: bool) -> Text:
-    """(1, False) -> "… 1 earlier review"
-
-    (1, True) -> "… 1+ earlier reviews"
-    """
-    if hidden == 1 and not lower_bound:
-        noun = "review"
-    else:
-        noun = "reviews"
-    if lower_bound:
-        count = f"{hidden}+"
-    else:
-        count = str(hidden)
-    return Text(f"… {count} earlier {noun}", style="dim")
-
-
 class _InboxBody(Static):
     """Draws the inbox's bands and state text; owns no state of its own."""
 
@@ -137,9 +114,7 @@ class GitHubInbox(Vertical):
         Binding("up", "cursor_up", "select pull request", show=False),
         Binding("down", "cursor_down", "select pull request", show=False),
         Binding("o", "open_selected", "open in GitHub", show=False),
-        Binding("enter", "toggle_detail", "view details", show=False),
-        Binding("shift+up", "scroll_detail_up", "scroll details", show=False),
-        Binding("shift+down", "scroll_detail_down", "scroll details", show=False),
+        Binding("enter", "open_pull_request", "view pull request", show=False),
         Binding("escape", "back_to_menu", "back to menu", show=False),
     ]
     can_focus = True
@@ -149,14 +124,6 @@ class GitHubInbox(Vertical):
     /* The cap keeps author · age near the titles on wide terminals; the centering
      * places the capped body like the menu's composition. */
     GitHubInbox > #body { height: 1fr; max-width: 120; }
-    GitHubInbox > #detail {
-        display: none;
-        height: 60%;
-        border-top: solid $primary;
-        scrollbar-size-vertical: 0;
-    }
-    GitHubInbox > #detail.-open { display: block; }
-    GitHubInbox > #detail > #detail-content { padding-bottom: 1; }
     """
 
     def __init__(self, panel: GitHubPanel) -> None:
@@ -166,7 +133,6 @@ class GitHubInbox(Vertical):
 
     def compose(self) -> ComposeResult:
         yield _InboxBody(self)
-        yield self.panel.build_detail_region()
 
     def _bands(self) -> tuple[Band, ...]:
         return _bands_of(self.panel.pull_requests())
@@ -263,56 +229,6 @@ class GitHubInbox(Vertical):
         meta.overflow = "ellipsis"
         return head, meta
 
-    def render_detail(self, item: Item, detail: object) -> RenderableType:
-        if not isinstance(detail, PullRequestDetail):
-            return Text(item.id)
-        parts: list[RenderableType] = [self._format_detail_header(item, detail), Text()]
-        # Markdown() interprets its input as CommonMark, not Rich's own "[style]" markup, so a
-        # hostile "[red]x[/red]" body can't style or hide anything — only headings, emphasis,
-        # code, and lists render as markdown.
-        if detail.body:
-            body = detail.body
-        else:
-            body = "no description"
-        parts.append(Markdown(body, code_theme="ansi_dark"))
-        if detail.hidden_reviews or detail.hidden_is_lower_bound:
-            parts.append(Text())
-            parts.append(
-                _format_hidden_reviews_line(detail.hidden_reviews, detail.hidden_is_lower_bound)
-            )
-        for review in detail.reviews:
-            parts.append(Text())
-            parts.append(self._format_review_line(review))
-        return Group(*parts)
-
-    def _format_detail_header(self, item: Item, detail: PullRequestDetail) -> Text:
-        header = Text()
-        header.append(item.id, style="dim")
-        if isinstance(item, PullRequest):
-            header.append(" · ")
-            header.append(str(item.category))
-            if item.author:
-                header.append(" · ")
-                header.append(item.author)
-        if detail.head and detail.base:
-            header.append(" · ")
-            header.append(f"{detail.head} → {detail.base}", style="dim")
-        return header
-
-    def _format_review_line(self, review: Review) -> Text:
-        line = Text(style="dim")
-        if review.author:
-            author = review.author
-        else:
-            author = "someone"
-        line.append(author)
-        line.append(" · ")
-        line.append(_format_review_label(review.state))
-        if review.submitted_at is not None:
-            line.append(" · ")
-            line.append(age(review.submitted_at))
-        return line
-
     def action_open_selected(self) -> None:
         pr = self.selected_item()
         if pr is None:
@@ -320,11 +236,11 @@ class GitHubInbox(Vertical):
         webbrowser.open(pr.url)
         self.panel.mark_seen(pr)
 
-    def action_toggle_detail(self) -> None:
-        self.panel.action_toggle_detail()
-        pr = self.panel.selected_item()
-        if pr is not None and self.panel.is_detail_showing(pr):
-            self.panel.mark_seen(pr)
+    def action_open_pull_request(self) -> None:
+        pr = self.selected_item()
+        if pr is None:
+            return
+        self.panel.open_pull_request(pr)
 
     def action_cursor_down(self) -> None:
         self._move(1)
@@ -339,12 +255,6 @@ class GitHubInbox(Vertical):
         index = min(self.cursor, len(ordered) - 1)
         self.cursor = (index + offset) % len(ordered)
         self.panel.refresh()
-
-    def action_scroll_detail_up(self) -> None:
-        self.panel.action_scroll_detail_up()
-
-    def action_scroll_detail_down(self) -> None:
-        self.panel.action_scroll_detail_down()
 
     def action_back_to_menu(self) -> None:
         self.panel.show_view(GitHubView.MENU)

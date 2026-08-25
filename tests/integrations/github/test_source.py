@@ -580,8 +580,8 @@ def test_detail_carries_the_body_the_branches_and_the_reviews(github):
     assert "Splits the loader in two." in detail.body
     assert detail.base == "main"
     assert detail.head == "tidy-loader"
-    assert [review.author for review in detail.reviews] == ["hubot", "monalisa"]
-    assert [review.state for review in detail.reviews] == ["CHANGES_REQUESTED", "APPROVED"]
+    assert [review.author for review in detail.reviews.items] == ["hubot", "monalisa"]
+    assert [review.state for review in detail.reviews.items] == ["CHANGES_REQUESTED", "APPROVED"]
 
 
 def test_detail_costs_one_request_per_thing_it_shows(github):
@@ -635,9 +635,9 @@ def test_detail_carries_the_line_counts(github):
 
     detail = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM)
 
-    assert detail.additions == 128
-    assert detail.deletions == 41
-    assert detail.changed_files == 6
+    assert detail.counts.additions == 128
+    assert detail.counts.deletions == 41
+    assert detail.counts.changed_files == 6
 
 
 def test_missing_line_counts_read_as_absent_not_zero(github):
@@ -646,9 +646,9 @@ def test_missing_line_counts_read_as_absent_not_zero(github):
 
     detail = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM)
 
-    assert detail.additions == ABSENT_COUNT
-    assert detail.deletions == ABSENT_COUNT
-    assert detail.changed_files == ABSENT_COUNT
+    assert detail.counts.additions == ABSENT_COUNT
+    assert detail.counts.deletions == ABSENT_COUNT
+    assert detail.counts.changed_files == ABSENT_COUNT
 
 
 def test_checks_merge_runs_with_legacy_statuses(github):
@@ -762,9 +762,9 @@ def test_detail_carries_the_newest_comments_oldest_first(github):
 
     detail = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM)
 
-    assert [comment.author for comment in detail.comments] == ["alice", "bob"]
-    assert detail.comments[0].body == "Looks good but the retry cap seems low."
-    assert detail.hidden_comments == 0
+    assert [comment.author for comment in detail.comments.items] == ["alice", "bob"]
+    assert detail.comments.items[0].body == "Looks good but the retry cap seems low."
+    assert detail.comments.hidden == 0
 
 
 def test_old_comments_are_counted_rather_than_shown(github):
@@ -780,9 +780,9 @@ def test_old_comments_are_counted_rather_than_shown(github):
 
     detail = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM)
 
-    assert [comment.body for comment in detail.comments] == ["c4", "c5", "c6", "c7", "c8"]
-    assert detail.hidden_comments == 4
-    assert detail.hidden_comments_is_lower_bound is False
+    assert [comment.body for comment in detail.comments.items] == ["c4", "c5", "c6", "c7", "c8"]
+    assert detail.comments.hidden == 4
+    assert detail.comments.hidden_is_lower_bound is False
 
 
 def test_a_comment_list_at_the_cap_reads_as_a_lower_bound(github):
@@ -794,14 +794,14 @@ def test_a_comment_list_at_the_cap_reads_as_a_lower_bound(github):
 
     detail = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM)
 
-    assert detail.hidden_comments_is_lower_bound is True
+    assert detail.comments.hidden_is_lower_bound is True
 
 
 def test_a_comment_survives_a_deleted_account_and_a_hostile_body(github):
     hostile = [{"user": None, "body": "hi\x1b[31m", "created_at": "2026-08-13T10:00:00Z"}]
     serving_detail(github, comments=hostile)
 
-    comment = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM).comments[0]
+    comment = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM).comments.items[0]
 
     assert comment.author == ""
     assert "\x1b" not in comment.body

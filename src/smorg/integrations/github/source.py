@@ -182,21 +182,30 @@ class Comment:
 
 
 @dataclass(frozen=True)
+class Newest[T]:
+    """The newest slice of a list too long to show whole."""
+
+    items: tuple[T, ...]
+    hidden: int = 0
+    hidden_is_lower_bound: bool = False
+
+
+@dataclass(frozen=True)
+class LineCounts:
+    additions: int = ABSENT_COUNT
+    deletions: int = ABSENT_COUNT
+    changed_files: int = ABSENT_COUNT
+
+
+@dataclass(frozen=True)
 class PullRequestDetail:
     body: str
     base: str
     head: str
-    reviews: tuple[Review, ...]
-    # Reviews that were fetched and dropped past REVIEW_LIMIT.
-    hidden_reviews: int = 0
-    hidden_is_lower_bound: bool = False
-    additions: int = ABSENT_COUNT
-    deletions: int = ABSENT_COUNT
-    changed_files: int = ABSENT_COUNT
-    checks: CheckSummary = UNAVAILABLE_CHECKS
-    comments: tuple[Comment, ...] = ()
-    hidden_comments: int = 0
-    hidden_comments_is_lower_bound: bool = False
+    reviews: Newest[Review]
+    comments: Newest[Comment]
+    counts: LineCounts
+    checks: CheckSummary
 
 
 def _message_of(error: GithubException) -> str:
@@ -468,15 +477,6 @@ def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> Pu
     with _client(credentials, lazy=True) as client, _github_errors():
         repository = client.get_repo(item.repository)
         pr = repository.get_pull(item.number)
-        raw_reviews = _first(pr.get_reviews(), REVIEWS_FETCH_LIMIT)
-        all_reviews = [_review_of(raw) for raw in raw_reviews]
-        oldest_first = sorted(all_reviews, key=_submitted_order)
-        newest = oldest_first[-REVIEW_LIMIT:]
-        raw_comments = _first(pr.get_issue_comments(), COMMENTS_FETCH_LIMIT)
-        all_comments = [_comment_of(raw) for raw in raw_comments]
-        shown_comments = all_comments[-COMMENT_LIMIT:]
-        checks = _checks_of(repository, pr)
-        additions, deletions, changed_files = _counts_of(pr)
         if pr.base:
             base_ref = pr.base.ref
         else:
@@ -489,16 +489,10 @@ def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> Pu
             body=_body_of(pr),
             base=sanitize_line(base_ref),
             head=sanitize_line(head_ref),
-            reviews=tuple(newest),
-            hidden_reviews=max(0, len(raw_reviews) - REVIEW_LIMIT),
-            hidden_is_lower_bound=len(raw_reviews) >= REVIEWS_FETCH_LIMIT,
-            additions=additions,
-            deletions=deletions,
-            changed_files=changed_files,
-            checks=checks,
-            comments=tuple(shown_comments),
-            hidden_comments=max(0, len(raw_comments) - COMMENT_LIMIT),
-            hidden_comments_is_lower_bound=len(raw_comments) >= COMMENTS_FETCH_LIMIT,
+            reviews=_reviews_of(pr),
+            comments=_comments_of(pr),
+            counts=_counts_of(pr),
+            checks=_checks_of(repository, pr),
         )
 
 
@@ -515,6 +509,27 @@ def _body_of(pr: GithubPullRequest) -> str:
     if not isinstance(raw, str):
         return ""
     return truncate(sanitize_block(raw, limit=None), BODY_LIMIT)
+
+
+def _reviews_of(pr: GithubPullRequest) -> Newest[Review]:
+    raw_reviews = _first(pr.get_reviews(), REVIEWS_FETCH_LIMIT)
+    all_reviews = [_review_of(raw) for raw in raw_reviews]
+    oldest_first = sorted(all_reviews, key=_submitted_order)
+    return Newest(
+        items=tuple(oldest_first[-REVIEW_LIMIT:]),
+        hidden=max(0, len(raw_reviews) - REVIEW_LIMIT),
+        hidden_is_lower_bound=len(raw_reviews) >= REVIEWS_FETCH_LIMIT,
+    )
+
+
+def _comments_of(pr: GithubPullRequest) -> Newest[Comment]:
+    raw_comments = _first(pr.get_issue_comments(), COMMENTS_FETCH_LIMIT)
+    all_comments = [_comment_of(raw) for raw in raw_comments]
+    return Newest(
+        items=tuple(all_comments[-COMMENT_LIMIT:]),
+        hidden=max(0, len(all_comments) - COMMENT_LIMIT),
+        hidden_is_lower_bound=len(raw_comments) >= COMMENTS_FETCH_LIMIT,
+    )
 
 
 def _review_of(raw: PullRequestReview) -> Review:
@@ -542,15 +557,19 @@ def _count_of(value: object) -> int:
     return value
 
 
-def _counts_of(pr: GithubPullRequest) -> tuple[int, int, int]:
-    """The additions, deletions, and changed-file counts; all absent on a misshapen payload."""
+def _counts_of(pr: GithubPullRequest) -> LineCounts:
+    """The line-change counts; all absent on a misshapen payload."""
     try:
         additions = pr.additions
         deletions = pr.deletions
         changed_files = pr.changed_files
     except BadAttributeException:
-        return ABSENT_COUNT, ABSENT_COUNT, ABSENT_COUNT
-    return _count_of(additions), _count_of(deletions), _count_of(changed_files)
+        return LineCounts()
+    return LineCounts(
+        additions=_count_of(additions),
+        deletions=_count_of(deletions),
+        changed_files=_count_of(changed_files),
+    )
 
 
 def _comment_of(raw: IssueComment) -> Comment:

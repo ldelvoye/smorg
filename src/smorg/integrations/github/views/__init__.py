@@ -12,3 +12,4 @@ CHANGE_STYLE = "green"
 class GitHubView(StrEnum):
     MENU = "menu"
     INBOX = "inbox"
+    PULL_REQUEST = "pull request"

@@ -4,16 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from rich.console import RenderableType
 from textual.app import ComposeResult
 from textual.types import NoActiveAppError
 
-from smorg.core.contract import Item
 from smorg.integrations.github.loading import GitHubLoading
 from smorg.integrations.github.source import Profile, PullRequest
 from smorg.integrations.github.views import GitHubView
 from smorg.integrations.github.views.inbox import GitHubInbox
 from smorg.integrations.github.views.menu import GitHubMenu
+from smorg.integrations.github.views.pull_request import GitHubPullRequestView
 from smorg.shell.panel import Panel, PanelState
 from smorg.shell.terminal_palette import TerminalPalette, relative_luminance
 
@@ -35,11 +34,13 @@ class GitHubPanel(Panel):
     def __init__(self) -> None:
         super().__init__()
         self.active_view = GitHubView.MENU
+        self.viewed: PullRequest | None = None
 
     def compose(self) -> ComposeResult:
         yield GitHubLoading()
         yield GitHubMenu(self)
         yield GitHubInbox(self)
+        yield GitHubPullRequestView(self)
 
     def on_mount(self) -> None:
         self._sync_view_display()
@@ -51,16 +52,35 @@ class GitHubPanel(Panel):
             self._active_view_widget().focus()
         self.refresh()
 
+    def open_pull_request(self, pr: PullRequest) -> None:
+        """Show one pull request full screen; its detail loads while the header renders."""
+        self.viewed = pr
+        self.request_detail(pr)
+        self.mark_seen(pr)
+        self.show_view(GitHubView.PULL_REQUEST)
+
+    def close_pull_request(self) -> None:
+        self.viewed = None
+        self.show_view(GitHubView.INBOX)
+
+    def reload_viewed(self) -> None:
+        if self.viewed is None:
+            return
+        self.reload_detail(self.viewed)
+        self.refresh()
+
     def focus(self, scroll_visible: bool = True):
         if self.state is PanelState.LOADING:
             return super().focus(scroll_visible)
         self._active_view_widget().focus(scroll_visible)
         return self
 
-    def _active_view_widget(self) -> GitHubMenu | GitHubInbox:
+    def _active_view_widget(self) -> GitHubMenu | GitHubInbox | GitHubPullRequestView:
         if self.active_view is GitHubView.MENU:
             return self._menu()
-        return self._inbox()
+        if self.active_view is GitHubView.INBOX:
+            return self._inbox()
+        return self._pull_request()
 
     def _sync_view_display(self) -> None:
         is_loading = self.state is PanelState.LOADING
@@ -70,6 +90,8 @@ class GitHubPanel(Panel):
         self.query_one(GitHubLoading).display = is_loading
         self._menu().display = not is_loading and self.active_view is GitHubView.MENU
         self._inbox().display = not is_loading and self.active_view is GitHubView.INBOX
+        showing_pr = not is_loading and self.active_view is GitHubView.PULL_REQUEST
+        self._pull_request().display = showing_pr
         if not is_loading and self.has_focus:
             self._active_view_widget().focus()
 
@@ -79,18 +101,24 @@ class GitHubPanel(Panel):
     def _inbox(self) -> GitHubInbox:
         return self.query_one(GitHubInbox)
 
+    def _pull_request(self) -> GitHubPullRequestView:
+        return self.query_one(GitHubPullRequestView)
+
     def refresh(
         self, *regions, repaint: bool = True, layout: bool = False, recompose: bool = False
     ):
         if self.is_mounted:
             self._sync_view_display()
             self._menu().refresh(repaint=repaint, layout=layout)
+            self._pull_request().refresh_content()
         return super().refresh(*regions, repaint=repaint, layout=layout, recompose=recompose)
 
     def help_bindings(self) -> Iterable[object]:
         if self.active_view is GitHubView.MENU:
             return GitHubMenu.BINDINGS
-        return GitHubInbox.BINDINGS
+        if self.active_view is GitHubView.INBOX:
+            return GitHubInbox.BINDINGS
+        return GitHubPullRequestView.BINDINGS
 
     def pull_requests(self) -> tuple[PullRequest, ...]:
         prs = [item for item in self.items if isinstance(item, PullRequest)]
@@ -126,18 +154,24 @@ class GitHubPanel(Panel):
     def selected_item(self) -> PullRequest | None:
         if self.active_view is GitHubView.MENU:
             return None
+        if self.active_view is GitHubView.PULL_REQUEST:
+            return self.viewed
         if not self.is_mounted:
             return None
         return self._inbox().selected_item()
 
-    def render_detail(self, item: Item, detail: object) -> RenderableType:
-        if not self.is_mounted:
-            return super().render_detail(item, detail)
-        return self._inbox().render_detail(item, detail)
+    def detail_keys_in_use(self) -> set[tuple[str, str]]:
+        """The open pull request's cache key survives pruning while it is on screen."""
+        keys = super().detail_keys_in_use()
+        if self.viewed is not None:
+            keys.add(self.detail_key(self.viewed))
+        return keys
 
     def ready_text(self) -> str:
         if not self.is_mounted:
             return super().ready_text()
         if self.active_view is GitHubView.MENU:
             return "\n".join(self._menu().content_lines())
-        return "\n".join(self._inbox().content_lines())
+        if self.active_view is GitHubView.INBOX:
+            return "\n".join(self._inbox().content_lines())
+        return "\n".join(self._pull_request().content_lines())

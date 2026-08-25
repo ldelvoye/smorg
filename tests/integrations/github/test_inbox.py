@@ -1,19 +1,13 @@
-"""Tests for the GitHub inbox: two stacked bands, one flat cursor, and the detail pane."""
+"""Tests for the GitHub inbox: two stacked bands, one flat cursor."""
 
 import io
 from datetime import timedelta
 
 import pytest
 from rich.console import Console
-from rich.text import Text
 
 from smorg.core.state import SeenState
-from smorg.integrations.github.source import (
-    Category,
-    PullRequest,
-    PullRequestDetail,
-    Review,
-)
+from smorg.integrations.github.source import Category
 from smorg.integrations.github.views.inbox import GitHubInbox
 
 from .helpers import NOW, inbox_with, pull
@@ -220,69 +214,3 @@ def test_no_row_wraps_at_any_width(width):
     lines = rendered(inbox, width=width).splitlines()
 
     assert all(len(line.rstrip()) <= width for line in lines)
-
-
-# --- The detail pane ---
-
-
-def detail(**overrides) -> PullRequestDetail:
-    fields = {
-        "body": "Splits the loader in two.",
-        "base": "main",
-        "head": "tidy-loader",
-        "reviews": (Review(author="hubot", state="CHANGES_REQUESTED", submitted_at=NOW),),
-    }
-    return PullRequestDetail(**(fields | overrides))
-
-
-def plain(inbox: GitHubInbox, item: PullRequest, shown: PullRequestDetail) -> str:
-    console = Console(width=100, file=io.StringIO(), force_terminal=False)
-    with console.capture() as capture:
-        console.print(inbox.render_detail(item, shown))
-    return capture.get()
-
-
-def test_the_detail_names_the_pull_request_its_branches_and_its_reviews():
-    item = pull(42)
-    text = plain(inbox_with(item), item, detail())
-
-    assert "octocat/hello#42" in text
-    assert "tidy-loader" in text
-    assert "main" in text
-    assert "hubot" in text
-
-
-def test_a_review_state_reads_as_words():
-    item = pull(42)
-    text = plain(inbox_with(item), item, detail())
-
-    assert "changes requested" in text
-
-
-def test_a_pull_request_with_no_description_says_so():
-    """Empty and unloaded look identical otherwise."""
-    item = pull(42)
-    text = plain(inbox_with(item), item, detail(body=""))
-
-    assert "no description" in text
-
-
-def test_dropped_reviews_are_counted_rather_than_silently_missing():
-    item = pull(42)
-    text = plain(inbox_with(item), item, detail(hidden_reviews=3))
-
-    assert "3 earlier reviews" in text
-
-
-def test_a_capped_review_count_reads_as_a_lower_bound():
-    item = pull(42)
-    text = plain(inbox_with(item), item, detail(hidden_reviews=20, hidden_is_lower_bound=True))
-
-    assert "20+ earlier reviews" in text
-
-
-def test_an_unrecognised_detail_shape_falls_back_instead_of_crashing():
-    item = pull(42)
-    fallback = inbox_with(item).render_detail(item, object())
-
-    assert isinstance(fallback, Text)

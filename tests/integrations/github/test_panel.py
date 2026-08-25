@@ -4,10 +4,12 @@ import json
 from pathlib import Path
 
 from smorg.core.state import SeenState
+from smorg.integrations.github.panel import GitHubPanel
 from smorg.integrations.github.source import PROFILE_ID, Category
 from smorg.integrations.github.views import GitHubView
 from smorg.integrations.github.views.inbox import GitHubInbox
 from smorg.integrations.github.views.menu import GitHubMenu
+from smorg.integrations.github.views.pull_request import GitHubPullRequestView
 
 from .helpers import PanelHarness, panel_with, profile_item, pull
 
@@ -62,6 +64,8 @@ def test_help_bindings_follow_the_active_view():
     assert list(panel.help_bindings()) == list(GitHubMenu.BINDINGS)
     panel.active_view = GitHubView.INBOX
     assert list(panel.help_bindings()) == list(GitHubInbox.BINDINGS)
+    panel.active_view = GitHubView.PULL_REQUEST
+    assert list(panel.help_bindings()) == list(GitHubPullRequestView.BINDINGS)
 
 
 def test_the_menu_view_has_no_selection_for_mark_unseen():
@@ -114,11 +118,67 @@ async def test_the_host_is_not_a_focus_stop():
         assert panel.app.focused is not panel
 
 
-async def test_base_panel_machinery_resolves_through_the_inbox():
-    """`Panel`'s own descendant queries for #body/#detail must still find them one
-    level deeper, inside the inbox.
-    """
+async def test_the_tab_has_no_detail_region_and_still_refreshes():
+    """The pane left this tab; the shell's guarded display half must shrug, not crash."""
     panel = panel_with(pull(42))
     async with PanelHarness(panel).run_test():
         assert panel.query_one("#body") is not None
-        assert panel.query_one("#detail") is not None
+        assert not panel.query("#detail")
+        panel.refresh()
+
+
+async def test_enter_opens_the_pull_request_view_and_escape_returns(tmp_path, monkeypatch):
+    monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path))
+    panel = panel_with(pull(42))
+    async with PanelHarness(panel).run_test() as pilot:
+        panel.show_view(GitHubView.INBOX)
+        await pilot.pause()
+
+        await pilot.press("enter")
+
+        assert panel.active_view is GitHubView.PULL_REQUEST
+        assert panel.viewed is not None and panel.viewed.number == 42
+        assert panel.query_one(GitHubPullRequestView).display is True
+
+        await pilot.press("escape")
+
+        assert panel.active_view is GitHubView.INBOX
+        assert panel.viewed is None
+
+
+async def test_opening_a_pull_request_marks_it_seen(tmp_path, monkeypatch):
+    monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path))
+    seen = SeenState({})
+    panel = panel_with(pull(42), seen=seen)
+    async with PanelHarness(panel).run_test() as pilot:
+        panel.show_view(GitHubView.INBOX)
+        await pilot.pause()
+
+        await pilot.press("enter")
+
+        assert not seen.is_changed("github", pull(42))
+
+
+async def test_a_refresh_cannot_steal_the_viewed_pull_request(tmp_path, monkeypatch):
+    monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path))
+    panel = panel_with(pull(42))
+    async with PanelHarness(panel).run_test() as pilot:
+        panel.show_view(GitHubView.INBOX)
+        await pilot.pause()
+        await pilot.press("enter")
+
+        panel.items = (pull(51, Category.DRAFT),)
+        panel.refresh()
+
+        assert panel.active_view is GitHubView.PULL_REQUEST
+        assert panel.viewed is not None and panel.viewed.number == 42
+
+
+def test_pruning_protects_the_viewed_pull_requests_detail():
+    panel = panel_with()
+    panel.viewed = pull(42)
+    panel.show_detail(GitHubPanel.detail_key(panel.viewed), object())
+
+    panel.prune_detail_cache()
+
+    assert panel.detail_for(panel.viewed) is not None
