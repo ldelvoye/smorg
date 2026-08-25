@@ -805,3 +805,30 @@ def test_a_comment_survives_a_deleted_account_and_a_hostile_body(github):
 
     assert comment.author == ""
     assert "\x1b" not in comment.body
+
+
+def test_detail_names_the_requested_reviewers(github):
+    asked = PULL | {
+        "requested_reviewers": [{"login": "alice"}],
+        "requested_teams": [{"slug": "sre-production-engineering"}],
+    }
+    serving_detail(github, pull=asked)
+
+    detail = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM)
+
+    assert detail.reviewers == ("alice", "#sre-production-engineering")
+
+
+def test_nobody_requested_reads_as_empty(github):
+    serving_detail(github)
+
+    assert fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM).reviewers == ()
+
+
+def test_a_reviewer_name_carrying_escapes_is_sanitised(github):
+    asked = PULL | {"requested_reviewers": [{"login": "al\x1b[31mice"}]}
+    serving_detail(github, pull=asked)
+
+    detail = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM)
+
+    assert "\x1b" not in detail.reviewers[0]

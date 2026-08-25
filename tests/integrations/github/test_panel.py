@@ -10,6 +10,7 @@ from smorg.integrations.github.views import GitHubView
 from smorg.integrations.github.views.inbox import GitHubInbox
 from smorg.integrations.github.views.menu import GitHubMenu
 from smorg.integrations.github.views.pull_request import GitHubPullRequestView
+from smorg.shell.panel import ScrollGutter
 
 from .helpers import PanelHarness, panel_with, profile_item, pull
 
@@ -182,3 +183,16 @@ def test_pruning_protects_the_viewed_pull_requests_detail():
     panel.prune_detail_cache()
 
     assert panel.detail_for(panel.viewed) is not None
+
+
+async def test_the_view_scrolls_behind_the_gutter_not_a_scrollbar(tmp_path, monkeypatch):
+    monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path))
+    panel = panel_with(pull(42))
+    async with PanelHarness(panel).run_test() as pilot:
+        panel.show_view(GitHubView.INBOX)
+        await pilot.pause()
+        await pilot.press("enter")
+
+        view = panel.query_one(GitHubPullRequestView)
+        assert view.query(ScrollGutter)
+        assert view.styles.scrollbar_size_vertical == 0

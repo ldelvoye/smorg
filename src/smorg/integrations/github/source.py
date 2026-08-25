@@ -202,6 +202,7 @@ class PullRequestDetail:
     body: str
     base: str
     head: str
+    reviewers: tuple[str, ...]
     reviews: Newest[Review]
     comments: Newest[Comment]
     counts: LineCounts
@@ -489,6 +490,7 @@ def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> Pu
             body=_body_of(pr),
             base=sanitize_line(base_ref),
             head=sanitize_line(head_ref),
+            reviewers=_reviewers_of(pr),
             reviews=_reviews_of(pr),
             comments=_comments_of(pr),
             counts=_counts_of(pr),
@@ -555,6 +557,23 @@ def _count_of(value: object) -> int:
     if not isinstance(value, int) or value < 0:
         return ABSENT_COUNT
     return value
+
+
+def _reviewers_of(pr: GithubPullRequest) -> tuple[str, ...]:
+    """Requested reviewers as display names: user logins, then teams as #slug."""
+    try:
+        users = pr.requested_reviewers
+        teams = pr.requested_teams
+    except BadAttributeException:
+        return ()
+    names: list[str] = []
+    for user in users:
+        if isinstance(user.login, str) and user.login:
+            names.append(sanitize_line(user.login))
+    for team in teams:
+        if isinstance(team.slug, str) and team.slug:
+            names.append(f"#{sanitize_line(team.slug)}")
+    return tuple(names)
 
 
 def _counts_of(pr: GithubPullRequest) -> LineCounts:

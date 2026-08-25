@@ -33,6 +33,7 @@ def detail(**overrides) -> PullRequestDetail:
         "comments": Newest(items=()),
         "counts": LineCounts(additions=128, deletions=41, changed_files=6),
         "checks": GREEN,
+        "reviewers": (),
     }
     return PullRequestDetail(**(fields | overrides))
 
@@ -185,3 +186,13 @@ def test_a_failed_load_reads_as_an_error():
 
     assert "could not load: boom" in text
     assert "loading…" not in text
+
+
+def test_requested_reviewers_show_as_a_waiting_line():
+    text = rendered(view_showing(detail(reviewers=("alice", "#sre-production-engineering"))))
+
+    assert "waiting on alice · #sre-production-engineering" in text
+
+
+def test_no_requested_reviewers_no_waiting_line():
+    assert "waiting on" not in rendered(view_showing(detail()))

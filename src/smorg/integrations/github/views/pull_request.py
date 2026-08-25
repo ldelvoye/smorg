@@ -26,6 +26,7 @@ from smorg.integrations.github.source import (
 )
 from smorg.shell.format import age
 from smorg.shell.markdown import Markdown
+from smorg.shell.panel import ScrollGutter
 
 if TYPE_CHECKING:
     from smorg.integrations.github.panel import GitHubPanel
@@ -111,6 +112,8 @@ def _format_header_lines(pr: PullRequest, detail: PullRequestDetail | None) -> l
     stats = _format_stats_line(detail)
     if stats is not None:
         lines.append(stats)
+    if detail.reviewers:
+        lines.append(Text(f"waiting on {' · '.join(detail.reviewers)}", style="dim"))
     checks = detail.checks
     if not checks.available:
         lines.append(Text("no checks", style="dim"))
@@ -261,7 +264,10 @@ class GitHubPullRequestView(VerticalScroll):
     ]
 
     DEFAULT_CSS = """
-    GitHubPullRequestView { align-horizontal: center; }
+    GitHubPullRequestView {
+        align-horizontal: center;
+        scrollbar-size-vertical: 0;
+    }
     GitHubPullRequestView > #pull-request-body { width: 100%; max-width: 120; }
     """
 
@@ -271,6 +277,7 @@ class GitHubPullRequestView(VerticalScroll):
 
     def compose(self) -> ComposeResult:
         yield _PullRequestBody(self)
+        yield ScrollGutter()
 
     def refresh_content(self) -> None:
         if self.is_mounted:
