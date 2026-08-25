@@ -28,6 +28,7 @@ from smorg.integrations.github.source import (
 from smorg.shell.format import age
 from smorg.shell.markdown import Markdown
 from smorg.shell.panel import ScrollGutter
+from smorg.shell.terminal_palette import StatusColors
 
 if TYPE_CHECKING:
     from smorg.integrations.github.panel import GitHubPanel
@@ -67,7 +68,9 @@ def _format_card(title: Text, body: list[RenderableType]) -> Card:
     )
 
 
-def _format_header_lines(pr: PullRequest, detail: PullRequestDetail | None) -> list[RenderableType]:
+def _format_header_lines(
+    pr: PullRequest, detail: PullRequestDetail | None, colors: StatusColors
+) -> list[RenderableType]:
     title = Text(pr.title, style="bold")
     meta = Text(style="dim")
     meta.append(f"{pr.repository}#{pr.number} · ")
@@ -77,7 +80,7 @@ def _format_header_lines(pr: PullRequest, detail: PullRequestDetail | None) -> l
     lines: list[RenderableType] = [title, meta]
     if detail is None:
         return lines
-    stats = _format_stats_line(detail)
+    stats = _format_stats_line(detail, colors)
     if stats is not None:
         lines.append(stats)
     checks = detail.checks
@@ -86,15 +89,15 @@ def _format_header_lines(pr: PullRequest, detail: PullRequestDetail | None) -> l
     return lines
 
 
-def _format_stats_line(detail: PullRequestDetail) -> Text | None:
+def _format_stats_line(detail: PullRequestDetail, colors: StatusColors) -> Text | None:
     counts = detail.counts
     segments: list[Text] = []
     if detail.head and detail.base:
         segments.append(Text(f"{detail.head} → {detail.base}", style="dim"))
     if counts.additions != ABSENT_COUNT:
-        segments.append(Text(f"+{counts.additions}", style="green"))
+        segments.append(Text(f"+{counts.additions}", style=colors.green))
     if counts.deletions != ABSENT_COUNT:
-        segments.append(Text(f"−{counts.deletions}", style="red"))
+        segments.append(Text(f"−{counts.deletions}", style=colors.red))
     if counts.changed_files != ABSENT_COUNT:
         if counts.changed_files == 1:
             noun = "file"
@@ -111,7 +114,7 @@ def _format_stats_line(detail: PullRequestDetail) -> Text | None:
     return line
 
 
-def _format_checks_card(checks: CheckSummary) -> Card:
+def _format_checks_card(checks: CheckSummary, colors: StatusColors) -> Card:
     parts = ["checks"]
     if checks.failed:
         parts.append(f"{checks.failed} failed")
@@ -123,15 +126,15 @@ def _format_checks_card(checks: CheckSummary) -> Card:
     if checks.truncated:
         label = f"{label} · …"
     if checks.failed:
-        title = Text(label, style="bold red")
+        title = Text(label, style=f"bold {colors.red}")
     elif checks.running:
-        title = Text(label, style="bold yellow")
+        title = Text(label, style=f"bold {colors.yellow}")
     else:
-        title = Text(label, style="bold green")
+        title = Text(label, style=f"bold {colors.green}")
     body: list[RenderableType] = []
     for name in checks.failed_names:
         line = Text()
-        line.append("✗ ", style="red")
+        line.append("✗ ", style=colors.red)
         line.append(name)
         body.append(line)
     if checks.hidden_failed:
@@ -141,7 +144,7 @@ def _format_checks_card(checks: CheckSummary) -> Card:
             body.append(Text("all passing so far", style="dim"))
         else:
             line = Text()
-            line.append("✓ ", style="green")
+            line.append("✓ ", style=colors.green)
             if checks.truncated:
                 line.append(f"{checks.passed}+ checks passed", style="dim")
             else:
@@ -150,19 +153,23 @@ def _format_checks_card(checks: CheckSummary) -> Card:
     return _format_card(title, body)
 
 
-_REVIEWER_SIGNS: dict[ReviewerState, tuple[str, str]] = {
-    ReviewerState.REQUESTED: ("●", "yellow"),
-    ReviewerState.CHANGES_REQUESTED: ("✗", "red"),
-    ReviewerState.APPROVED: ("✓", "green"),
-    ReviewerState.LEFT_COMMENTS: ("❝", "dim"),
-    ReviewerState.DISMISSED: ("○", "dim"),
-}
+def _reviewer_sign(state: ReviewerState, colors: StatusColors) -> tuple[str, str]:
+    if state is ReviewerState.REQUESTED:
+        return "●", colors.yellow
+    if state is ReviewerState.CHANGES_REQUESTED:
+        return "✗", colors.red
+    if state is ReviewerState.APPROVED:
+        return "✓", colors.green
+    if state is ReviewerState.LEFT_COMMENTS:
+        return "❝", "dim"
+    return "○", "dim"
+
 
 _MAX_REVIEWER_LINES = 10
 
 
-def _format_reviewer_line(reviewer: Reviewer) -> Text:
-    sign, sign_style = _REVIEWER_SIGNS[reviewer.state]
+def _format_reviewer_line(reviewer: Reviewer, colors: StatusColors) -> Text:
+    sign, sign_style = _reviewer_sign(reviewer.state, colors)
     line = Text()
     line.append(sign, style=sign_style)
     line.append(" ")
@@ -177,10 +184,10 @@ def _format_reviewer_line(reviewer: Reviewer) -> Text:
     return line
 
 
-def _format_reviews_card(reviewers: tuple[Reviewer, ...]) -> Card:
+def _format_reviews_card(reviewers: tuple[Reviewer, ...], colors: StatusColors) -> Card:
     body: list[RenderableType] = []
     for reviewer in reviewers[:_MAX_REVIEWER_LINES]:
-        body.append(_format_reviewer_line(reviewer))
+        body.append(_format_reviewer_line(reviewer, colors))
     hidden = len(reviewers) - _MAX_REVIEWER_LINES
     if hidden > 0:
         body.append(Text(f"… {hidden} more reviewers", style="dim"))
@@ -226,14 +233,14 @@ def _format_comments_card(comments: Newest[Comment]) -> Card:
     return _format_card(title, body)
 
 
-def _format_sections(detail: PullRequestDetail) -> list[RenderableType]:
+def _format_sections(detail: PullRequestDetail, colors: StatusColors) -> list[RenderableType]:
     parts: list[RenderableType] = []
     checks = detail.checks
     if checks.available and (checks.failed or checks.running or checks.passed):
-        parts.append(_format_checks_card(checks))
+        parts.append(_format_checks_card(checks, colors))
         parts.append(Text())
     if detail.reviewers:
-        parts.append(_format_reviews_card(detail.reviewers))
+        parts.append(_format_reviews_card(detail.reviewers, colors))
         parts.append(Text())
     parts.append(_format_description_card(detail))
     if _has_any(detail.comments):
@@ -296,11 +303,12 @@ class GitHubPullRequestView(VerticalScroll):
             detail = raw
         else:
             detail = None
+        colors = self.panel.status_colors()
         parts: list[RenderableType] = [Text(_BACK_HINT, style="dim"), Text()]
-        parts.extend(_format_header_lines(pr, detail))
+        parts.extend(_format_header_lines(pr, detail, colors))
         parts.append(Text())
         if detail is not None:
-            parts.extend(_format_sections(detail))
+            parts.extend(_format_sections(detail, colors))
         elif error is not None:
             parts.append(Text(f"could not load: {error}"))
         else:

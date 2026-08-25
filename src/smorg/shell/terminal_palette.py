@@ -68,6 +68,28 @@ def relative_luminance(rgb: RGB) -> float:
     return 0.2126 * _linear(red) + 0.7152 * _linear(green) + 0.0722 * _linear(blue)
 
 
+@dataclass(frozen=True)
+class StatusColors:
+    """Truecolor semantic shades legible on this terminal's background."""
+
+    red: str
+    yellow: str
+    green: str
+
+
+_STATUS_DARK = StatusColors(red="#f85149", yellow="#d29922", green="#3fb950")
+_STATUS_LIGHT = StatusColors(red="#cf222e", yellow="#9a6700", green="#1a7f37")
+
+
+def status_colors(background: RGB | None) -> StatusColors:
+    """Primer's semantic shades for this background; the dark set when unknown."""
+    if background is None:
+        return _STATUS_DARK
+    if relative_luminance(background) > 0.5:
+        return _STATUS_LIGHT
+    return _STATUS_DARK
+
+
 def contrast_ratio(one: RGB, other: RGB) -> float:
     """W3C contrast ratio: 1.0 for two identical colors, 21.0 black on white."""
     luminances = (relative_luminance(one), relative_luminance(other))

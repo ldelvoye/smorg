@@ -228,3 +228,10 @@ async def test_the_gutter_shows_the_down_arrow_before_any_scroll(tmp_path, monke
 
         gutter = panel.query_one(GitHubPullRequestView).query_one(ScrollGutter)
         assert "↓" in str(gutter.content)
+
+
+# --- Theme-aware status colors, without a mounted app ---
+
+
+def test_status_colors_default_to_the_dark_shades_without_an_app():
+    assert panel_with().status_colors().red == "#f85149"

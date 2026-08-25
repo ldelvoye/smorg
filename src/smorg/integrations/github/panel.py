@@ -14,7 +14,12 @@ from smorg.integrations.github.views.inbox import GitHubInbox
 from smorg.integrations.github.views.menu import GitHubMenu
 from smorg.integrations.github.views.pull_request import GitHubPullRequestView
 from smorg.shell.panel import Panel, PanelState
-from smorg.shell.terminal_palette import TerminalPalette, relative_luminance
+from smorg.shell.terminal_palette import (
+    StatusColors,
+    TerminalPalette,
+    relative_luminance,
+    status_colors,
+)
 
 _GREEN_RAMP_DARK = ("#006d32", "#26a641", "#39d353", "#7ee787")
 _GREEN_RAMP_LIGHT = ("#aceebb", "#4ac26b", "#1a7f37", "#044f1e")
@@ -139,6 +144,16 @@ class GitHubPanel(Panel):
         if isinstance(palette, TerminalPalette):
             return _ramp_for_background(palette.background)
         return _ramp_for_background(None)
+
+    def status_colors(self) -> StatusColors:
+        """Semantic red/yellow/green picked to sit on this terminal's background."""
+        try:
+            palette = getattr(self.app, "palette", None)
+        except NoActiveAppError:
+            return status_colors(None)
+        if isinstance(palette, TerminalPalette):
+            return status_colors(palette.background)
+        return status_colors(None)
 
     def unseen_count(self) -> int:
         integration_id = self.integration_id

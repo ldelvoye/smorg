@@ -23,6 +23,7 @@ from smorg.integrations.github.source import Category, PullRequest
 from smorg.integrations.github.views import CHANGE_STYLE, CHANGED_MARK, SELECTED_MARK, GitHubView
 from smorg.shell.format import age
 from smorg.shell.panel import PanelState
+from smorg.shell.terminal_palette import StatusColors
 
 if TYPE_CHECKING:
     from smorg.integrations.github.panel import GitHubPanel
@@ -31,14 +32,17 @@ _EMPTY_BAND = "all caught up"
 _BACK_HINT = "‹ esc — menu"
 
 _BAND_TITLE_STYLE = "bold underline"
-_CATEGORY_STYLES = {
-    Category.NEEDS_YOUR_REVIEW: "bold red",
-    Category.NEEDS_TEAM_REVIEW: "bold",
-    Category.DRAFT: "bold",
-    Category.WAITING: "bold yellow",
-    Category.NEEDS_ACTION: "bold red",
-    Category.READY_TO_MERGE: "bold green",
-}
+
+
+def _category_style(category: Category, colors: StatusColors) -> str:
+    if category is Category.NEEDS_YOUR_REVIEW or category is Category.NEEDS_ACTION:
+        return f"bold {colors.red}"
+    if category is Category.WAITING:
+        return f"bold {colors.yellow}"
+    if category is Category.READY_TO_MERGE:
+        return f"bold {colors.green}"
+    return "bold"
+
 
 _BANDS: tuple[tuple[str, tuple[Category, ...]], ...] = (
     (
@@ -160,6 +164,7 @@ class GitHubInbox(Vertical):
     def render_content(self) -> RenderableType:
         bands = self._bands()
         selected = self._selected_in(bands)
+        colors = self.panel.status_colors()
         parts: list[RenderableType] = []
         for title, sections in bands:
             if parts:
@@ -172,7 +177,7 @@ class GitHubInbox(Vertical):
             for index, (category, prs) in enumerate(sections):
                 if index > 0:
                     parts.append(Text())
-                parts.append(self._format_section_card(category, prs, selected))
+                parts.append(self._format_section_card(category, prs, selected, colors))
         return Group(*parts)
 
     def content_lines(self) -> list[str]:
@@ -183,7 +188,11 @@ class GitHubInbox(Vertical):
         return capture.get().splitlines()
 
     def _format_section_card(
-        self, category: Category, prs: tuple[PullRequest, ...], selected: PullRequest | None
+        self,
+        category: Category,
+        prs: tuple[PullRequest, ...],
+        selected: PullRequest | None,
+        colors: StatusColors,
     ) -> RenderableType:
         lines: list[RenderableType] = []
         for pr in prs:
@@ -192,7 +201,7 @@ class GitHubInbox(Vertical):
             head, meta = self._format_cell(pr, pr is selected)
             lines.append(head)
             lines.append(meta)
-        heading = Text(_format_heading(category, prs), style=_CATEGORY_STYLES[category])
+        heading = Text(_format_heading(category, prs), style=_category_style(category, colors))
         return Card(
             Group(*lines),
             title=heading,
