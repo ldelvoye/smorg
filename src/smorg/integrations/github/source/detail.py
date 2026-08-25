@@ -11,6 +11,7 @@ import requests
 from github import BadAttributeException, GithubException
 from github.IssueComment import IssueComment
 from github.PullRequest import PullRequest as GithubPullRequest
+from github.PullRequestReview import PullRequestReview
 from github.Repository import Repository
 
 from smorg.auth.store import Credentials
@@ -156,32 +157,10 @@ def _body_of(pr: GithubPullRequest) -> str:
 
 
 def _reviewers_of(pr: GithubPullRequest, author: str) -> tuple[Reviewer, ...]:
-    """One entry per person or team with standing in the review, requested first.
-
-    The author's COMMENTED wrappers (GitHub's empty artifacts around single inline
-    comments) are not reviewer states and are dropped.
-    """
+    """One entry per person or team with standing in the review, requested first."""
     raw_events = first(pr.get_reviews(), REVIEWS_FETCH_LIMIT)
-    decided: dict[str, Reviewer] = {}
-    commented: dict[str, Reviewer] = {}
-    for raw in raw_events:
-        user = raw.user
-        if user is None or not isinstance(user.login, str) or not user.login:
-            continue
-        name = sanitize_line(user.login)
-        if isinstance(raw.submitted_at, datetime):
-            submitted_at = raw.submitted_at
-        else:
-            submitted_at = None
-        raw_state = raw.state
-        if raw_state in _DECIDED_STATES:
-            state = _DECIDED_STATES[raw_state]
-            decided[name] = Reviewer(name=name, state=state, submitted_at=submitted_at)
-        elif raw_state == "COMMENTED" and name != author:
-            reviewer = Reviewer(
-                name=name, state=ReviewerState.LEFT_COMMENTS, submitted_at=submitted_at
-            )
-            commented[name] = reviewer
+    commented = _commented_of(raw_events, author)
+    decided = _decided_of(raw_events)
     requested = _requested_of(pr)
     by_name: dict[str, Reviewer] = {}
     # Overlay order is precedence: a request beats a past decision, which beats mere comments.
@@ -197,6 +176,51 @@ def _reviewers_of(pr: GithubPullRequest, author: str) -> tuple[Reviewer, ...]:
             if reviewer.state is state:
                 ordered.append(reviewer)
     return tuple(ordered)
+
+
+def _commented_of(raw_events: list[PullRequestReview], author: str) -> dict[str, Reviewer]:
+    """Each commenter's latest comment-only review, keyed by name.
+
+    The author's COMMENTED wrappers (GitHub's empty artifacts around single inline
+    comments) are not reviewer states and are dropped.
+    """
+    commented: dict[str, Reviewer] = {}
+    for raw in raw_events:
+        name = _event_author_of(raw)
+        if name is None or raw.state != "COMMENTED" or name == author:
+            continue
+        reviewer = Reviewer(
+            name=name, state=ReviewerState.LEFT_COMMENTS, submitted_at=_event_moment_of(raw)
+        )
+        commented[name] = reviewer
+    return commented
+
+
+def _decided_of(raw_events: list[PullRequestReview]) -> dict[str, Reviewer]:
+    """Each reviewer's latest approval, change request, or dismissal, keyed by name."""
+    decided: dict[str, Reviewer] = {}
+    for raw in raw_events:
+        name = _event_author_of(raw)
+        state = _DECIDED_STATES.get(raw.state)
+        if name is None or state is None:
+            continue
+        decided[name] = Reviewer(name=name, state=state, submitted_at=_event_moment_of(raw))
+    return decided
+
+
+def _event_author_of(raw: PullRequestReview) -> str | None:
+    """The sanitized login behind a review event, or None for a deleted account."""
+    user = raw.user
+    if user is None or not isinstance(user.login, str) or not user.login:
+        return None
+    return sanitize_line(user.login)
+
+
+def _event_moment_of(raw: PullRequestReview) -> datetime | None:
+    """When the review was submitted, or None when GitHub omitted it."""
+    if isinstance(raw.submitted_at, datetime):
+        return raw.submitted_at
+    return None
 
 
 def _requested_of(pr: GithubPullRequest) -> list[str]:
