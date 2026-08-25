@@ -36,12 +36,12 @@ _BAND_TITLE_STYLE = "bold underline"
 
 def _category_style(category: Category, colors: StatusColors) -> str:
     if category is Category.NEEDS_YOUR_REVIEW or category is Category.NEEDS_ACTION:
-        return f"bold {colors.red}"
+        return f"bold not dim {colors.red}"
     if category is Category.WAITING:
-        return f"bold {colors.yellow}"
+        return f"bold not dim {colors.yellow}"
     if category is Category.READY_TO_MERGE:
-        return f"bold {colors.green}"
-    return "bold"
+        return f"bold not dim {colors.green}"
+    return "bold not dim"
 
 
 _BANDS: tuple[tuple[str, tuple[Category, ...]], ...] = (

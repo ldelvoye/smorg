@@ -1,6 +1,9 @@
 """Tests for the pull request view: rendering only, no network and no app."""
 
+import io
 from datetime import timedelta
+
+from rich.console import Console
 
 from smorg.integrations.github.panel import GitHubPanel
 from smorg.integrations.github.source import (
@@ -12,7 +15,11 @@ from smorg.integrations.github.source import (
     Reviewer,
     ReviewerState,
 )
-from smorg.integrations.github.views.pull_request import GitHubPullRequestView
+from smorg.integrations.github.views.pull_request import (
+    GitHubPullRequestView,
+    _format_checks_card,
+)
+from smorg.shell.terminal_palette import StatusColors
 
 from .helpers import NOW, panel_with, pull
 
@@ -232,3 +239,16 @@ def test_the_cards_read_checks_reviews_description_comments():
     reviews_at = text.index("reviews (")
     description_at = text.index("description")
     assert checks_at < reviews_at < description_at
+
+
+def test_card_titles_escape_the_borders_dim():
+    """The dim border must not wash a title's color: bold + truecolor, never dim."""
+    shades = StatusColors(red="#cf222e", yellow="#9a6700", green="#1a7f37")
+    card = _format_checks_card(checks(), shades)
+
+    console = Console(width=60, file=io.StringIO(), force_terminal=True, color_system="truecolor")
+    with console.capture() as capture:
+        console.print(card)
+
+    top_line = capture.get().splitlines()[0]
+    assert "\x1b[1;38;2;207;34;46m" in top_line

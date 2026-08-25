@@ -126,11 +126,11 @@ def _format_checks_card(checks: CheckSummary, colors: StatusColors) -> Card:
     if checks.truncated:
         label = f"{label} · …"
     if checks.failed:
-        title = Text(label, style=f"bold {colors.red}")
+        title = Text(label, style=f"bold not dim {colors.red}")
     elif checks.running:
-        title = Text(label, style=f"bold {colors.yellow}")
+        title = Text(label, style=f"bold not dim {colors.yellow}")
     else:
-        title = Text(label, style=f"bold {colors.green}")
+        title = Text(label, style=f"bold not dim {colors.green}")
     body: list[RenderableType] = []
     for name in checks.failed_names:
         line = Text()
@@ -191,7 +191,7 @@ def _format_reviews_card(reviewers: tuple[Reviewer, ...], colors: StatusColors) 
     hidden = len(reviewers) - _MAX_REVIEWER_LINES
     if hidden > 0:
         body.append(Text(f"… {hidden} more reviewers", style="dim"))
-    title = Text(f"reviews ({len(reviewers)})", style="bold")
+    title = Text(f"reviews ({len(reviewers)})", style="bold not dim")
     return _format_card(title, body)
 
 
@@ -203,7 +203,7 @@ def _format_description_card(detail: PullRequestDetail) -> Card:
     # Markdown() interprets its input as CommonMark, not Rich's own "[style]" markup, so a
     # hostile "[red]x[/red]" body can't style or hide anything.
     content = Markdown(body, code_theme="ansi_dark")
-    return _format_card(Text("description", style="bold"), [content])
+    return _format_card(Text("description", style="bold not dim"), [content])
 
 
 def _format_comment_heading(comment: Comment) -> Text:
@@ -229,7 +229,7 @@ def _format_comments_card(comments: Newest[Comment]) -> Card:
         body.append(_format_comment_heading(comment))
         if comment.body:
             body.append(Markdown(comment.body, code_theme="ansi_dark"))
-    title = Text(f"comments ({len(comments.items)})", style="bold")
+    title = Text(f"comments ({len(comments.items)})", style="bold not dim")
     return _format_card(title, body)
 
 
