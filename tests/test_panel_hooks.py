@@ -5,6 +5,7 @@ from textual.message import Message
 
 from smorg.core.contract import Item
 from smorg.shell.app import SmorgApp
+from smorg.shell.detail_pane import SplitDetailPanel
 from smorg.shell.panel import Panel
 from smorg.shell.terminal_palette import TerminalPalette
 
@@ -14,11 +15,17 @@ def test_help_bindings_default_to_the_class_bindings():
     assert list(panel.help_bindings()) == list(type(panel).BINDINGS)
 
 
-def test_build_detail_region_matches_what_compose_mounts():
-    region = Panel().build_detail_region()
+def test_the_pane_subclass_composes_the_detail_region():
+    widgets = list(SplitDetailPanel().compose())
+    region = widgets[-1]
     assert isinstance(region, VerticalScroll)
     assert region.id == "detail"
     assert region.can_focus is False
+
+
+def test_a_bare_panel_composes_no_detail_region():
+    widgets = list(Panel().compose())
+    assert not any(widget.id == "detail" for widget in widgets)
 
 
 def test_the_app_exposes_the_palette_it_was_given():

@@ -10,9 +10,9 @@ from textual.binding import Binding
 
 from smorg.core.contract import Item
 from smorg.integrations.linear.source import Comment, Issue, IssueDetail
+from smorg.shell.detail_pane import SplitDetailPanel
 from smorg.shell.format import age
 from smorg.shell.markdown import Markdown
-from smorg.shell.panel import Panel
 
 _CHANGED_MARK = "●"
 _SELECTED_MARK = "▸"
@@ -68,7 +68,7 @@ def _format_hidden_comments_line(hidden: int, lower_bound: bool) -> Text:
     return Text(f"… {count} earlier {noun}", style="dim")
 
 
-class LinearPanel(Panel):
+class LinearPanel(SplitDetailPanel):
     BINDINGS = [
         Binding("up", "cursor_up", "select issue", show=False),
         Binding("down", "cursor_down", "select issue", show=False),
