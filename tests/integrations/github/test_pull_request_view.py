@@ -149,7 +149,7 @@ def test_reviewer_lines_carry_their_signs(monkeypatch):
     assert "● alice · requested" in text
     assert "✗ hubot · changes requested · 3h" in text
     assert "✓ monalisa · approved · 3h" in text
-    assert "❝ wedamija · left comments · 3h" in text
+    assert "✎ wedamija · left comments · 3h" in text
     assert "reviews (4)" in text
 
 

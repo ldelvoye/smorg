@@ -162,7 +162,7 @@ def _reviewer_sign(state: ReviewerState, colors: StatusColors) -> tuple[str, str
     if state is ReviewerState.APPROVED:
         return "✓", colors.green
     if state is ReviewerState.LEFT_COMMENTS:
-        return "❝", "dim"
+        return "✎", "dim"
     return "○", "dim"
 
 
