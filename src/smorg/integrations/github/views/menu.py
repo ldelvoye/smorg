@@ -16,8 +16,9 @@ from textual.binding import Binding
 from textual.widgets import Static
 
 from smorg.integrations.github.source import ABSENT_DAY, DAYS_PER_WEEK, ContributionWeek
-from smorg.integrations.github.views import CHANGE_STYLE, CHANGED_MARK, SELECTED_MARK, GitHubView
+from smorg.integrations.github.views import CHANGED_MARK, SELECTED_MARK, GitHubView
 from smorg.shell.panel import PanelState
+from smorg.shell.terminal_palette import StatusColors
 
 if TYPE_CHECKING:
     from smorg.integrations.github.panel import GitHubPanel
@@ -48,7 +49,7 @@ def _format_welcome(login: str) -> Text:
     return Text("welcome back", style="bold")
 
 
-def _format_updates(unseen_count: int) -> Text:
+def _format_updates(unseen_count: int, colors: StatusColors) -> Text:
     if unseen_count == 0:
         return Text("you're all caught up", style="dim")
     if unseen_count == 1:
@@ -56,7 +57,7 @@ def _format_updates(unseen_count: int) -> Text:
     else:
         noun = "updates"
     line = Text()
-    line.append(f"{CHANGED_MARK} ", style=CHANGE_STYLE)
+    line.append(f"{CHANGED_MARK} ", style=colors.green)
     line.append(f"{unseen_count} {noun} since you last looked")
     return line
 
@@ -170,7 +171,7 @@ class GitHubMenu(Static):
         else:
             login = ""
         parts: list[RenderableType] = [_format_welcome(login), Text()]
-        parts.append(_format_updates(self.panel.unseen_count()))
+        parts.append(_format_updates(self.panel.unseen_count(), self.panel.status_colors()))
         parts.append(Text())
         parts.append(self._format_graph_card())
         parts.append(Text())

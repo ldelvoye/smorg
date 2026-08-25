@@ -20,7 +20,7 @@ from textual.containers import Vertical
 from textual.widgets import Static
 
 from smorg.integrations.github.source import Category, PullRequest
-from smorg.integrations.github.views import CHANGE_STYLE, CHANGED_MARK, SELECTED_MARK, GitHubView
+from smorg.integrations.github.views import CHANGED_MARK, SELECTED_MARK, GitHubView
 from smorg.shell.format import age
 from smorg.shell.panel import PanelState
 from smorg.shell.terminal_palette import StatusColors
@@ -198,7 +198,7 @@ class GitHubInbox(Vertical):
         for pr in prs:
             if lines:
                 lines.append(Text())
-            head, meta = self._format_cell(pr, pr is selected)
+            head, meta = self._format_cell(pr, pr is selected, colors)
             lines.append(head)
             lines.append(meta)
         heading = Text(_format_heading(category, prs), style=_category_style(category, colors))
@@ -211,7 +211,9 @@ class GitHubInbox(Vertical):
             padding=(0, 1),
         )
 
-    def _format_cell(self, pr: PullRequest, selected: bool) -> tuple[Text, Text]:
+    def _format_cell(
+        self, pr: PullRequest, selected: bool, colors: StatusColors
+    ) -> tuple[Text, Text]:
         """A pull request's two lines: the marked title, then its dim reference · author · age."""
         head = Text()
         if selected:
@@ -221,7 +223,7 @@ class GitHubInbox(Vertical):
         head.append(" ")
         changed = self.panel.seen.is_changed(self.panel.integration_id, pr)
         if changed:
-            head.append(CHANGED_MARK, style=CHANGE_STYLE)
+            head.append(CHANGED_MARK, style=colors.green)
         else:
             head.append(" ")
         head.append(" ")
