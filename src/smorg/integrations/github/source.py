@@ -44,7 +44,7 @@ class Category(StrEnum):
     NEEDS_YOUR_REVIEW = "needs your review"
     NEEDS_TEAM_REVIEW = "needs your team's review"
     DRAFT = "drafts"
-    WAITING = "waiting review or actions"
+    WAITING = "waiting review or ci"
     NEEDS_ACTION = "needs actions"
     READY_TO_MERGE = "ready to merge"
 
