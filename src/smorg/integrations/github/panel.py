@@ -42,7 +42,7 @@ class GitHubPanel(Panel):
         self.viewed: PullRequest | None = None
 
     def compose(self) -> ComposeResult:
-        yield GitHubLoading("loading your pull requests")
+        yield GitHubLoading("connecting to github")
         yield GitHubMenu(self)
         yield GitHubInbox(self)
         yield GitHubPullRequestView(self)

@@ -43,7 +43,7 @@ async def test_the_animation_runs_only_while_shown():
 
 
 def test_the_bar_bounces_between_the_track_ends():
-    loading = GitHubLoading("loading your pull requests")
+    loading = GitHubLoading("connecting to github")
     positions = []
     for _ in range(2 * (_TRACK_WIDTH - _SEGMENT_WIDTH) + 2):
         loading._advance()
