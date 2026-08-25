@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from smorg.core.state import SeenState
+from smorg.integrations.github.loading import GitHubLoading
 from smorg.integrations.github.panel import GitHubPanel
 from smorg.integrations.github.source import (
     PROFILE_ID,
@@ -237,3 +238,46 @@ def test_status_colors_default_to_the_dark_shades_without_an_app():
     colors = panel_with().status_colors()
 
     assert colors.red == "#f85149"
+
+
+async def test_opening_a_pull_request_shows_the_octocat_until_detail_lands(tmp_path, monkeypatch):
+    monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path))
+    panel = panel_with(pull(42))
+    async with PanelHarness(panel).run_test() as pilot:
+        panel.show_view(GitHubView.INBOX)
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        view = panel.query_one(GitHubPullRequestView)
+        assert view.query_one(GitHubLoading).display is True
+        assert view.query_one("#pull-request-body").display is False
+
+        shown = PullRequestDetail(
+            body="hello",
+            base="main",
+            head="tall",
+            reviewers=(),
+            comments=Newest(items=()),
+            counts=LineCounts(),
+            checks=UNAVAILABLE_CHECKS,
+        )
+        panel.show_detail(GitHubPanel.detail_key(pull(42)), shown)
+        await pilot.pause()
+
+        assert view.query_one(GitHubLoading).display is False
+        assert view.query_one("#pull-request-body").display is True
+
+
+async def test_escape_still_works_while_the_detail_loads(tmp_path, monkeypatch):
+    monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path))
+    panel = panel_with(pull(42))
+    async with PanelHarness(panel).run_test() as pilot:
+        panel.show_view(GitHubView.INBOX)
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        await pilot.press("escape")
+
+        assert panel.active_view is GitHubView.INBOX

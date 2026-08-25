@@ -15,6 +15,7 @@ from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.widgets import Static
 
+from smorg.integrations.github.loading import GitHubLoading
 from smorg.integrations.github.source import (
     ABSENT_COUNT,
     CheckSummary,
@@ -291,10 +292,27 @@ class GitHubPullRequestView(VerticalScroll):
     def compose(self) -> ComposeResult:
         yield _PullRequestBody(self)
         yield ScrollGutter()
+        yield GitHubLoading()
+
+    def on_mount(self) -> None:
+        self.refresh_content()
 
     def refresh_content(self) -> None:
-        if self.is_mounted:
-            self.query_one(_PullRequestBody).refresh(layout=True)
+        if not self.is_mounted:
+            return
+        pr = self.panel.viewed
+        if pr is None:
+            loading = False
+        else:
+            answered = self.panel.detail_for(pr) is not None
+            failed = self.panel.detail_error_for(pr) is not None
+            loading = self.panel.is_detail_pending(pr) and not answered and not failed
+        self.query_one(GitHubLoading).display = loading
+        self.query_one(ScrollGutter).display = not loading
+        body = self.query_one(_PullRequestBody)
+        body.display = not loading
+        if not loading:
+            body.refresh(layout=True)
 
     def render_view(self, pr: PullRequest) -> RenderableType:
         raw = self.panel.detail_for(pr)
