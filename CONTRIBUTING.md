@@ -26,9 +26,9 @@ src/smorg/integrations/<id>/
   panel.py      how its tab looks
 ```
 
-Then add your `INTEGRATION` to `INTEGRATIONS` in
-`src/smorg/integrations/__init__.py`. That allowlist is deliberate: anything
-not registered fails with "not supported" rather than half-working.
+Then add your `INTEGRATION` to `INTEGRATIONS` in`src/smorg/integrations/__init__.py`. That allowlist is deliberate: anything not registered fails with "not supported" rather than half-working.
+
+An integration that outgrows one of these files can turn it into a package of the same name re-exporting the same surface; the github tab's `source/` does exactly that.
 
 ### What you own
 
