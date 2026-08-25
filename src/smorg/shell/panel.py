@@ -61,11 +61,11 @@ class _PanelBody(Static):
         return self._panel.body_text()
 
 
-class _DetailGutter(Static):
-    """1-width column on the right of the detail scroll container"""
+class ScrollGutter(Static):
+    """1-width ↑/↓ column docked to the right of a scroll container."""
 
     DEFAULT_CSS = """
-    _DetailGutter { dock: right; width: 1; height: 1fr; }
+    ScrollGutter { dock: right; width: 1; height: 1fr; }
     """
 
     def __init__(self) -> None:
@@ -137,7 +137,7 @@ class Panel(Vertical):
         shows details.
         """
         detail = VerticalScroll(
-            Static(markup=False, id="detail-content"), _DetailGutter(), id="detail"
+            Static(markup=False, id="detail-content"), ScrollGutter(), id="detail"
         )
         # The panel keeps focus; the region is scrolled through panel actions, never
         # focused itself.
@@ -319,7 +319,7 @@ class Panel(Vertical):
         # replaced by the real detail), and the gutter only watches scroll_y, so its arrows are
         # refreshed explicitly. Deferred until after the next refresh because virtual_size is
         # only recomputed when layout runs.
-        self.call_after_refresh(self.query_one(_DetailGutter).refresh_arrows)
+        self.call_after_refresh(self.query_one(ScrollGutter).refresh_arrows)
 
     def body_text(self) -> str:
         if self.state is PanelState.LOADING:

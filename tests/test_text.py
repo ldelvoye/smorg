@@ -1,4 +1,4 @@
-from smorg.core.text import sanitize_block, sanitize_line, truncate
+from smorg.core.text import flatten_html, sanitize_block, sanitize_line, truncate
 
 
 def test_sanitize_block_keeps_newlines_and_strips_escapes():
@@ -33,3 +33,22 @@ def test_truncate_at_exactly_the_limit_is_unchanged():
 def test_truncate_marks_a_cut_with_a_visible_trailing_marker():
     result = truncate("x" * 10, limit=5)
     assert result == "xxxxx\n\n… (truncated)"
+
+
+def test_flatten_html_unwraps_tags_and_keeps_anchors_as_links():
+    raw = '<!-- linear-linkback -->\n<p><a href="https://linear.app/i/X-1">X-1</a></p>'
+
+    assert flatten_html(raw) == "[X-1](https://linear.app/i/X-1)"
+
+
+def test_flatten_html_leaves_plain_text_alone():
+    assert flatten_html("no tags, just a < b maths") == "no tags, just a < b maths"
+
+
+def test_flatten_html_collapses_blank_runs():
+    raw = "<div><p>one</p></div>\n\n\n<div><p>two</p></div>"
+
+    flattened = flatten_html(raw)
+
+    assert "one" in flattened and "two" in flattened
+    assert "\n\n\n" not in flattened

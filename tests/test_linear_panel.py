@@ -795,7 +795,7 @@ def test_render_detail_shows_nothing_when_no_comments_are_hidden():
 
 @pytest.mark.asyncio
 async def test_the_gutter_shows_a_down_arrow_then_switches_to_an_up_arrow():
-    from smorg.shell.panel import _DetailGutter
+    from smorg.shell.panel import ScrollGutter
 
     long_description = _overflowing_description()
     panel = panel_with(issue("ENG-1"))
@@ -804,7 +804,7 @@ async def test_the_gutter_shows_a_down_arrow_then_switches_to_an_up_arrow():
         panel.show_detail(panel.detail_key(issue("ENG-1")), detail(long_description))
         await pilot.pause()
 
-        gutter = panel.query_one(_DetailGutter)
+        gutter = panel.query_one(ScrollGutter)
 
         def gutter_text() -> str:
             return "".join(gutter.render_line(y).text for y in range(gutter.size.height))
