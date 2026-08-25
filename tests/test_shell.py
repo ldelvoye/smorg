@@ -128,8 +128,7 @@ async def test_the_app_defaults_to_the_terminal_native_ansi_theme():
     "ansi-dark" is Textual's built-in theme that resolves background,
     foreground, and chrome colors to the terminal's own ANSI palette instead of
     fixed truecolor hex values, and it is what makes native_ansi_color true —
-    the flag that keeps named ANSI colors (e.g. CHANGE_STYLE) from being
-    approximated to RGB.
+    the flag that keeps named ANSI colors from being approximated to RGB.
     """
     app = SmorgApp(tabs=(TabConfig("alpha"),))
     async with app.run_test():
