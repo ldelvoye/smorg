@@ -292,7 +292,7 @@ class GitHubPullRequestView(VerticalScroll):
     def compose(self) -> ComposeResult:
         yield _PullRequestBody(self)
         yield ScrollGutter()
-        yield GitHubLoading()
+        yield GitHubLoading("loading the pull request")
 
     def on_mount(self) -> None:
         self.refresh_content()

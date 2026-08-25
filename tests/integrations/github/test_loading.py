@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import io
+
+from rich.console import Console
+
 from smorg.integrations.github.loading import _SEGMENT_WIDTH, _TRACK_WIDTH, GitHubLoading
 from smorg.integrations.github.panel import GitHubPanel
 from smorg.integrations.github.views.menu import GitHubMenu
@@ -39,10 +43,20 @@ async def test_the_animation_runs_only_while_shown():
 
 
 def test_the_bar_bounces_between_the_track_ends():
-    loading = GitHubLoading()
+    loading = GitHubLoading("loading your pull requests")
     positions = []
     for _ in range(2 * (_TRACK_WIDTH - _SEGMENT_WIDTH) + 2):
         loading._advance()
         positions.append(loading.bar_position)
     assert max(positions) == _TRACK_WIDTH - _SEGMENT_WIDTH
     assert min(positions) == 0
+
+
+def test_the_widget_says_what_it_loads():
+    loading = GitHubLoading("loading the pull request")
+
+    console = Console(width=60, file=io.StringIO(), force_terminal=False)
+    with console.capture() as capture:
+        console.print(loading.render())
+
+    assert "loading the pull request" in capture.get()
