@@ -1,10 +1,11 @@
-"""PyGithub client construction and the seam that turns its failures into IntegrationError."""
+"""GitHub clients: PyGithub construction, one GraphQL POST, and the error seam."""
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+import httpx
 import requests
 from github import (
     Auth,
@@ -30,6 +31,8 @@ from smorg.core.text import sanitize_line
 REQUEST_TIMEOUT_SECONDS = 30
 RESULTS_PER_PAGE = 50
 MAX_RETRIES = 2
+
+GRAPHQL_URL = "https://api.github.com/graphql"
 
 # How GitHub names an organization that requires SSO, in the body of its 403.
 SAML_ENFORCEMENT = "saml enforcement"
@@ -100,6 +103,12 @@ def connect(credentials: Credentials, lazy: bool = False) -> Github:
         # integration doesn't write, and writes keep their own separate pacing regardless.
         seconds_between_requests=0,
     )
+
+
+def query_graphql(credentials: Credentials, http: httpx.Client, query: str) -> httpx.Response:
+    """One POST against the GraphQL endpoint; status and payload stay the caller's to judge."""
+    headers = {"Authorization": f"Bearer {credentials.access_token}"}
+    return http.post(GRAPHQL_URL, json={"query": query}, headers=headers)
 
 
 def first[T: GithubObject](results: PaginatedList[T], limit: int) -> list[T]:

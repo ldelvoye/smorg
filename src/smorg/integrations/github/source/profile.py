@@ -10,8 +10,8 @@ import httpx
 from smorg.auth.store import Credentials
 from smorg.core.contract import Item
 from smorg.core.text import sanitize_line
+from smorg.integrations.github.source.client import query_graphql
 
-GRAPHQL_URL = "https://api.github.com/graphql"
 PROFILE_ID = "github-profile"
 # A day the queried range does not cover; rendered blank, unlike a zero-contribution day.
 ABSENT_DAY = -1
@@ -149,9 +149,8 @@ def _profile_of(payload: object) -> Profile:
 
 def query_profile(credentials: Credentials, http: httpx.Client) -> Profile:
     """The viewer's profile over GraphQL; any failure degrades to unavailable, never raises."""
-    headers = {"Authorization": f"Bearer {credentials.access_token}"}
     try:
-        response = http.post(GRAPHQL_URL, json={"query": _PROFILE_QUERY}, headers=headers)
+        response = query_graphql(credentials, http, _PROFILE_QUERY)
     except httpx.HTTPError:
         return _unavailable_profile()
     if response.status_code != 200:

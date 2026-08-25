@@ -6,7 +6,9 @@ import json
 from datetime import date
 
 import httpx
+import pytest
 
+from smorg.core.contract import Unavailable
 from smorg.integrations.github.source import PROFILE_ID, ContributionWeek, Profile, fetch
 
 from .recorded import CREDENTIALS, HELLO, VIEWER, graphql_http, only_pull_requests
@@ -40,14 +42,12 @@ def test_the_profile_arrives_last_with_parsed_weeks(github):
     assert profile.weeks[1].levels == (4, -1, -1, -1, -1, -1, -1)
 
 
-def test_a_failing_graphql_call_degrades_to_an_unavailable_profile(github):
-    items = fetch(CREDENTIALS, failing_http())
-
-    profile = items[-1]
-    assert isinstance(profile, Profile)
-    assert profile.unavailable is True
-    # No searches were registered, so the pull-request half must be empty, not broken.
-    assert only_pull_requests(items) == []
+def test_a_totally_unreachable_graphql_endpoint_stops_the_fetch(github):
+    """An unreachable endpoint fails the authored search too, which raises: the tab must
+    error rather than render an inbox missing its authored half.
+    """
+    with pytest.raises(Unavailable):
+        fetch(CREDENTIALS, failing_http())
 
 
 def test_a_graphql_error_status_degrades_to_an_unavailable_profile(github):
