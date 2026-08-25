@@ -52,3 +52,9 @@ def test_flatten_html_collapses_blank_runs():
 
     assert "one" in flattened and "two" in flattened
     assert "\n\n\n" not in flattened
+
+
+def test_flatten_html_does_not_leak_link_text_into_stray_tags():
+    raw = '<a href="u">x</a> tail </a>'
+
+    assert flatten_html(raw) == "[x](u) tail"

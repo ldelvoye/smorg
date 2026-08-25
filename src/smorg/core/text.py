@@ -63,6 +63,7 @@ class _HtmlFlattener(HTMLParser):
             text = "".join(self._link_text).strip()
             href = self._href
             self._href = None
+            self._link_text = []
             if href and text:
                 self.parts.append(f"[{text}]({href})")
             else:
