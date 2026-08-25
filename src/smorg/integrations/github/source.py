@@ -24,7 +24,6 @@ from github.Issue import IssueSearchResult
 from github.IssueComment import IssueComment
 from github.PaginatedList import PaginatedList
 from github.PullRequest import PullRequest as GithubPullRequest
-from github.PullRequestReview import PullRequestReview
 from github.Repository import Repository
 
 from smorg.auth.store import Credentials
@@ -55,7 +54,6 @@ RESULTS_PER_PAGE = 50
 MAX_PER_QUERY = 50
 MAX_RETRIES = 2
 
-REVIEW_LIMIT = 5
 REVIEWS_FETCH_LIMIT = 25
 BODY_LIMIT = 50_000
 COMMENT_LIMIT = 5
@@ -117,10 +115,6 @@ QUERIES: tuple[tuple[Category, str], ...] = (
 # How GitHub names an organization that requires SSO, in the body of its 403.
 SAML_ENFORCEMENT = "saml enforcement"
 
-# Where a review that was never submitted sorts. Timezone-aware to match GitHub's own stamps:
-# sorting an aware and a naive datetime together raises.
-NEVER_SUBMITTED = datetime.max.replace(tzinfo=UTC)
-
 
 @dataclass(frozen=True)
 class PullRequest(Item):
@@ -149,11 +143,38 @@ class Profile(Item):
     unavailable: bool = False
 
 
+class ReviewerState(StrEnum):
+    """A reviewer's standing on the pull request, GitHub-sidebar style."""
+
+    REQUESTED = "requested"
+    APPROVED = "approved"
+    CHANGES_REQUESTED = "changes requested"
+    LEFT_COMMENTS = "left comments"
+    DISMISSED = "dismissed"
+
+
 @dataclass(frozen=True)
-class Review:
-    author: str
-    state: str
+class Reviewer:
+    name: str
+    state: ReviewerState
+    # None for a requested reviewer who has not reviewed yet.
     submitted_at: datetime | None
+
+
+_DECIDED_STATES = {
+    "APPROVED": ReviewerState.APPROVED,
+    "CHANGES_REQUESTED": ReviewerState.CHANGES_REQUESTED,
+    "DISMISSED": ReviewerState.DISMISSED,
+}
+
+# Display order: what still blocks the pull request first.
+_STATE_ORDER = (
+    ReviewerState.REQUESTED,
+    ReviewerState.CHANGES_REQUESTED,
+    ReviewerState.APPROVED,
+    ReviewerState.LEFT_COMMENTS,
+    ReviewerState.DISMISSED,
+)
 
 
 @dataclass(frozen=True)
@@ -202,8 +223,7 @@ class PullRequestDetail:
     body: str
     base: str
     head: str
-    reviewers: tuple[str, ...]
-    reviews: Newest[Review]
+    reviewers: tuple[Reviewer, ...]
     comments: Newest[Comment]
     counts: LineCounts
     checks: CheckSummary
@@ -490,19 +510,11 @@ def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> Pu
             body=_body_of(pr),
             base=sanitize_line(base_ref),
             head=sanitize_line(head_ref),
-            reviewers=_reviewers_of(pr),
-            reviews=_reviews_of(pr),
+            reviewers=_reviewers_of(pr, item.author),
             comments=_comments_of(pr),
             counts=_counts_of(pr),
             checks=_checks_of(repository, pr),
         )
-
-
-def _submitted_order(review: Review) -> datetime:
-    """Pending reviews sort last."""
-    if review.submitted_at is None:
-        return NEVER_SUBMITTED
-    return review.submitted_at
 
 
 def _body_of(pr: GithubPullRequest) -> str:
@@ -511,17 +523,6 @@ def _body_of(pr: GithubPullRequest) -> str:
     if not isinstance(raw, str):
         return ""
     return truncate(sanitize_block(raw, limit=None), BODY_LIMIT)
-
-
-def _reviews_of(pr: GithubPullRequest) -> Newest[Review]:
-    raw_reviews = _first(pr.get_reviews(), REVIEWS_FETCH_LIMIT)
-    all_reviews = [_review_of(raw) for raw in raw_reviews]
-    oldest_first = sorted(all_reviews, key=_submitted_order)
-    return Newest(
-        items=tuple(oldest_first[-REVIEW_LIMIT:]),
-        hidden=max(0, len(raw_reviews) - REVIEW_LIMIT),
-        hidden_is_lower_bound=len(raw_reviews) >= REVIEWS_FETCH_LIMIT,
-    )
 
 
 def _comments_of(pr: GithubPullRequest) -> Newest[Comment]:
@@ -534,24 +535,6 @@ def _comments_of(pr: GithubPullRequest) -> Newest[Comment]:
     )
 
 
-def _review_of(raw: PullRequestReview) -> Review:
-    """A typed Review; anything GitHub omitted degrades to "" or None."""
-    author = raw.user
-    if author is None or not isinstance(author.login, str):
-        name = ""
-    else:
-        name = sanitize_line(author.login)
-    if isinstance(raw.state, str):
-        state = sanitize_line(raw.state)
-    else:
-        state = ""
-    if isinstance(raw.submitted_at, datetime):
-        submitted_at = raw.submitted_at
-    else:
-        submitted_at = None
-    return Review(author=name, state=state, submitted_at=submitted_at)
-
-
 def _count_of(value: object) -> int:
     """A non-negative count from the payload, or ABSENT_COUNT when missing or misshapen."""
     if not isinstance(value, int) or value < 0:
@@ -559,13 +542,13 @@ def _count_of(value: object) -> int:
     return value
 
 
-def _reviewers_of(pr: GithubPullRequest) -> tuple[str, ...]:
+def _requested_of(pr: GithubPullRequest) -> list[str]:
     """Requested reviewers as display names: user logins, then teams as #slug."""
     try:
         users = pr.requested_reviewers
         teams = pr.requested_teams
     except BadAttributeException:
-        return ()
+        return []
     names: list[str] = []
     for user in users:
         if isinstance(user.login, str) and user.login:
@@ -573,7 +556,50 @@ def _reviewers_of(pr: GithubPullRequest) -> tuple[str, ...]:
     for team in teams:
         if isinstance(team.slug, str) and team.slug:
             names.append(f"#{sanitize_line(team.slug)}")
-    return tuple(names)
+    return names
+
+
+def _reviewers_of(pr: GithubPullRequest, author: str) -> tuple[Reviewer, ...]:
+    """One entry per person or team with standing in the review, requested first.
+
+    The author's COMMENTED wrappers (GitHub's empty artifacts around single inline
+    comments) are not reviewer states and are dropped.
+    """
+    raw_events = _first(pr.get_reviews(), REVIEWS_FETCH_LIMIT)
+    decided: dict[str, Reviewer] = {}
+    commented: dict[str, Reviewer] = {}
+    for raw in raw_events:
+        user = raw.user
+        if user is None or not isinstance(user.login, str) or not user.login:
+            continue
+        name = sanitize_line(user.login)
+        if isinstance(raw.submitted_at, datetime):
+            submitted_at = raw.submitted_at
+        else:
+            submitted_at = None
+        raw_state = raw.state
+        if raw_state in _DECIDED_STATES:
+            state = _DECIDED_STATES[raw_state]
+            decided[name] = Reviewer(name=name, state=state, submitted_at=submitted_at)
+        elif raw_state == "COMMENTED" and name != author:
+            reviewer = Reviewer(
+                name=name, state=ReviewerState.LEFT_COMMENTS, submitted_at=submitted_at
+            )
+            commented[name] = reviewer
+    requested = _requested_of(pr)
+    by_name: dict[str, Reviewer] = {}
+    for name, reviewer in commented.items():
+        by_name[name] = reviewer
+    for name, reviewer in decided.items():
+        by_name[name] = reviewer
+    for name in requested:
+        by_name[name] = Reviewer(name=name, state=ReviewerState.REQUESTED, submitted_at=None)
+    ordered: list[Reviewer] = []
+    for state in _STATE_ORDER:
+        for reviewer in by_name.values():
+            if reviewer.state is state:
+                ordered.append(reviewer)
+    return tuple(ordered)
 
 
 def _counts_of(pr: GithubPullRequest) -> LineCounts:

@@ -34,6 +34,8 @@ from smorg.integrations.github.source import (
     ContributionWeek,
     Profile,
     PullRequest,
+    Reviewer,
+    ReviewerState,
     fetch,
     fetch_detail,
 )
@@ -580,8 +582,17 @@ def test_detail_carries_the_body_the_branches_and_the_reviews(github):
     assert "Splits the loader in two." in detail.body
     assert detail.base == "main"
     assert detail.head == "tidy-loader"
-    assert [review.author for review in detail.reviews.items] == ["hubot", "monalisa"]
-    assert [review.state for review in detail.reviews.items] == ["CHANGES_REQUESTED", "APPROVED"]
+    hubot = Reviewer(
+        name="hubot",
+        state=ReviewerState.CHANGES_REQUESTED,
+        submitted_at=datetime(2026, 8, 12, 10, 0, tzinfo=UTC),
+    )
+    monalisa = Reviewer(
+        name="monalisa",
+        state=ReviewerState.APPROVED,
+        submitted_at=datetime(2026, 8, 13, 11, 0, tzinfo=UTC),
+    )
+    assert detail.reviewers == (hubot, monalisa)
 
 
 def test_detail_costs_one_request_per_thing_it_shows(github):
@@ -807,16 +818,19 @@ def test_a_comment_survives_a_deleted_account_and_a_hostile_body(github):
     assert "\x1b" not in comment.body
 
 
-def test_detail_names_the_requested_reviewers(github):
+def test_requested_users_and_teams_lead_the_reviewer_lines(github):
     asked = PULL | {
         "requested_reviewers": [{"login": "alice"}],
         "requested_teams": [{"slug": "sre-production-engineering"}],
     }
-    serving_detail(github, pull=asked)
+    serving_detail(github, pull=asked, reviews=REVIEWS)
 
     detail = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM)
 
-    assert detail.reviewers == ("alice", "#sre-production-engineering")
+    names = [reviewer.name for reviewer in detail.reviewers]
+    assert names[:2] == ["alice", "#sre-production-engineering"]
+    assert detail.reviewers[0].state is ReviewerState.REQUESTED
+    assert detail.reviewers[0].submitted_at is None
 
 
 def test_nobody_requested_reads_as_empty(github):
@@ -831,4 +845,59 @@ def test_a_reviewer_name_carrying_escapes_is_sanitised(github):
 
     detail = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM)
 
-    assert "\x1b" not in detail.reviewers[0]
+    assert "\x1b" not in detail.reviewers[0].name
+
+
+def _review_event(login: str, state: str, submitted_at: str) -> dict:
+    return {"user": {"login": login}, "state": state, "body": "", "submitted_at": submitted_at}
+
+
+def test_the_authors_comment_wrappers_are_not_reviewer_states(github):
+    events = [
+        _review_event("octocat", "COMMENTED", "2026-08-12T10:00:00Z"),
+        _review_event("octocat", "COMMENTED", "2026-08-12T10:05:00Z"),
+    ]
+    serving_detail(github, reviews=events)
+
+    assert fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM).reviewers == ()
+
+
+def test_a_later_comment_never_downgrades_an_approval(github):
+    events = [
+        _review_event("wedamija", "APPROVED", "2026-08-12T10:00:00Z"),
+        _review_event("wedamija", "COMMENTED", "2026-08-12T11:00:00Z"),
+    ]
+    serving_detail(github, reviews=events)
+
+    reviewer = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM).reviewers[0]
+
+    assert reviewer.state is ReviewerState.APPROVED
+
+
+def test_a_reviewer_with_only_comments_left_comments(github):
+    events = [_review_event("wedamija", "COMMENTED", "2026-08-12T10:00:00Z")]
+    serving_detail(github, reviews=events)
+
+    reviewer = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM).reviewers[0]
+
+    assert reviewer.state is ReviewerState.LEFT_COMMENTS
+
+
+def test_a_re_requested_reviewer_reads_as_requested_again(github):
+    asked = PULL | {"requested_reviewers": [{"login": "wedamija"}]}
+    events = [_review_event("wedamija", "APPROVED", "2026-08-12T10:00:00Z")]
+    serving_detail(github, pull=asked, reviews=events)
+
+    detail = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM)
+
+    states = [reviewer.state for reviewer in detail.reviewers]
+    assert states == [ReviewerState.REQUESTED]
+
+
+def test_a_dismissed_review_reads_as_dismissed(github):
+    events = [_review_event("wedamija", "DISMISSED", "2026-08-12T10:00:00Z")]
+    serving_detail(github, reviews=events)
+
+    reviewer = fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM).reviewers[0]
+
+    assert reviewer.state is ReviewerState.DISMISSED

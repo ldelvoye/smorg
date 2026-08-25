@@ -219,7 +219,6 @@ async def test_the_gutter_shows_the_down_arrow_before_any_scroll(tmp_path, monke
             base="main",
             head="tall",
             reviewers=(),
-            reviews=Newest(items=()),
             comments=Newest(items=()),
             counts=LineCounts(),
             checks=UNAVAILABLE_CHECKS,

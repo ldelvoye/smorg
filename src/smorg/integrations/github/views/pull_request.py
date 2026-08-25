@@ -22,7 +22,8 @@ from smorg.integrations.github.source import (
     Newest,
     PullRequest,
     PullRequestDetail,
-    Review,
+    Reviewer,
+    ReviewerState,
 )
 from smorg.shell.format import age
 from smorg.shell.markdown import Markdown
@@ -126,7 +127,7 @@ def _format_checks_card(checks: CheckSummary) -> Card:
     elif checks.running:
         title = Text(label, style="bold yellow")
     else:
-        title = Text(label, style="bold")
+        title = Text(label, style="bold green")
     body: list[RenderableType] = []
     for name in checks.failed_names:
         line = Text()
@@ -149,35 +150,41 @@ def _format_checks_card(checks: CheckSummary) -> Card:
     return _format_card(title, body)
 
 
-def _format_review_label(state: str) -> str:
-    """ "CHANGES_REQUESTED" -> "changes requested" """
-    return state.replace("_", " ").casefold()
+_REVIEWER_SIGNS: dict[ReviewerState, tuple[str, str]] = {
+    ReviewerState.REQUESTED: ("●", "yellow"),
+    ReviewerState.CHANGES_REQUESTED: ("✗", "red"),
+    ReviewerState.APPROVED: ("✓", "green"),
+    ReviewerState.LEFT_COMMENTS: ("❝", "dim"),
+    ReviewerState.DISMISSED: ("○", "dim"),
+}
+
+_MAX_REVIEWER_LINES = 10
 
 
-def _format_review_line(review: Review) -> Text:
-    line = Text(style="dim")
-    if review.author:
-        author = review.author
-    else:
-        author = "someone"
-    line.append(author)
-    line.append(" · ")
-    line.append(_format_review_label(review.state))
-    if review.submitted_at is not None:
-        line.append(" · ")
-        line.append(age(review.submitted_at))
+def _format_reviewer_line(reviewer: Reviewer) -> Text:
+    sign, sign_style = _REVIEWER_SIGNS[reviewer.state]
+    line = Text()
+    line.append(sign, style=sign_style)
+    line.append(" ")
+    rest = Text(style="dim")
+    rest.append(reviewer.name)
+    rest.append(" · ")
+    rest.append(str(reviewer.state))
+    if reviewer.submitted_at is not None:
+        rest.append(" · ")
+        rest.append(age(reviewer.submitted_at))
+    line.append_text(rest)
     return line
 
 
-def _format_reviews_card(reviews: Newest[Review], reviewers: tuple[str, ...]) -> Card:
+def _format_reviews_card(reviewers: tuple[Reviewer, ...]) -> Card:
     body: list[RenderableType] = []
-    if reviewers:
-        body.append(Text(f"waiting on {' · '.join(reviewers)}", style="dim"))
-    if reviews.hidden or reviews.hidden_is_lower_bound:
-        body.append(_format_hidden_line(reviews, "review"))
-    for review in reviews.items:
-        body.append(_format_review_line(review))
-    title = Text(f"reviews ({len(reviews.items)})", style="bold")
+    for reviewer in reviewers[:_MAX_REVIEWER_LINES]:
+        body.append(_format_reviewer_line(reviewer))
+    hidden = len(reviewers) - _MAX_REVIEWER_LINES
+    if hidden > 0:
+        body.append(Text(f"… {hidden} more reviewers", style="dim"))
+    title = Text(f"reviews ({len(reviewers)})", style="bold")
     return _format_card(title, body)
 
 
@@ -225,8 +232,8 @@ def _format_sections(detail: PullRequestDetail) -> list[RenderableType]:
     if checks.available and (checks.failed or checks.running or checks.passed):
         parts.append(_format_checks_card(checks))
         parts.append(Text())
-    if _has_any(detail.reviews) or detail.reviewers:
-        parts.append(_format_reviews_card(detail.reviews, detail.reviewers))
+    if detail.reviewers:
+        parts.append(_format_reviews_card(detail.reviewers))
         parts.append(Text())
     parts.append(_format_description_card(detail))
     if _has_any(detail.comments):

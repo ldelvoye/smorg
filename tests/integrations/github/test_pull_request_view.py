@@ -9,7 +9,8 @@ from smorg.integrations.github.source import (
     LineCounts,
     Newest,
     PullRequestDetail,
-    Review,
+    Reviewer,
+    ReviewerState,
 )
 from smorg.integrations.github.views.pull_request import GitHubPullRequestView
 
@@ -24,16 +25,16 @@ def checks(**overrides) -> CheckSummary:
 
 
 def detail(**overrides) -> PullRequestDetail:
-    hubot = Review(author="hubot", state="CHANGES_REQUESTED", submitted_at=NOW)
     fields = {
         "body": "Splits the loader in two.",
         "base": "main",
         "head": "tidy-loader",
-        "reviews": Newest(items=(hubot,)),
+        "reviewers": (
+            Reviewer(name="hubot", state=ReviewerState.CHANGES_REQUESTED, submitted_at=NOW),
+        ),
         "comments": Newest(items=()),
         "counts": LineCounts(additions=128, deletions=41, changed_files=6),
         "checks": GREEN,
-        "reviewers": (),
     }
     return PullRequestDetail(**(fields | overrides))
 
@@ -127,8 +128,43 @@ def test_a_missing_description_says_so():
     assert "no description" in rendered(view_showing(detail(body="")))
 
 
-def test_a_review_state_reads_as_words():
-    assert "changes requested" in rendered(view_showing(detail()))
+def test_reviewer_lines_carry_their_signs(monkeypatch):
+    monkeypatch.setattr("smorg.shell.format.now", lambda: NOW + timedelta(hours=3))
+    lines = (
+        Reviewer(name="alice", state=ReviewerState.REQUESTED, submitted_at=None),
+        Reviewer(name="hubot", state=ReviewerState.CHANGES_REQUESTED, submitted_at=NOW),
+        Reviewer(name="monalisa", state=ReviewerState.APPROVED, submitted_at=NOW),
+        Reviewer(name="wedamija", state=ReviewerState.LEFT_COMMENTS, submitted_at=NOW),
+    )
+
+    text = rendered(view_showing(detail(reviewers=lines)))
+
+    assert "● alice · requested" in text
+    assert "✗ hubot · changes requested · 3h" in text
+    assert "✓ monalisa · approved · 3h" in text
+    assert "❝ wedamija · left comments · 3h" in text
+    assert "reviews (4)" in text
+
+
+def test_no_reviewers_no_reviews_card():
+    assert "reviews" not in rendered(view_showing(detail(reviewers=())))
+
+
+def test_reviewer_lines_beyond_the_cap_are_counted():
+    many = tuple(
+        Reviewer(name=f"user{index}", state=ReviewerState.APPROVED, submitted_at=NOW)
+        for index in range(13)
+    )
+
+    text = rendered(view_showing(detail(reviewers=many)))
+
+    assert "… 3 more reviewers" in text
+
+
+def test_an_all_green_checks_title_is_still_counted():
+    text = rendered(view_showing(detail(checks=GREEN)))
+
+    assert "checks · 14 passed" in text
 
 
 def test_comments_show_author_age_and_body(monkeypatch):
@@ -159,7 +195,7 @@ def test_a_deleted_comment_author_reads_as_someone():
 
 
 def test_empty_sections_have_no_cards():
-    text = rendered(view_showing(detail(reviews=Newest(items=()))))
+    text = rendered(view_showing(detail(reviewers=())))
 
     assert "reviews" not in text
     assert "comments" not in text
@@ -187,26 +223,6 @@ def test_a_failed_load_reads_as_an_error():
 
     assert "could not load: boom" in text
     assert "loading…" not in text
-
-
-def test_requested_reviewers_show_as_a_waiting_line():
-    text = rendered(view_showing(detail(reviewers=("alice", "#sre-production-engineering"))))
-
-    assert "waiting on alice · #sre-production-engineering" in text
-    assert "reviews (1)" in text
-
-
-def test_no_requested_reviewers_no_waiting_line():
-    assert "waiting on" not in rendered(view_showing(detail()))
-
-
-def test_reviewers_without_reviews_still_get_the_card():
-    shown = detail(reviews=Newest(items=()), reviewers=("alice",))
-
-    text = rendered(view_showing(shown))
-
-    assert "reviews (0)" in text
-    assert "waiting on alice" in text
 
 
 def test_the_cards_read_checks_reviews_description_comments():
