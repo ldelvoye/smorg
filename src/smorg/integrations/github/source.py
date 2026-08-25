@@ -21,9 +21,10 @@ from github import (
 )
 from github.GithubObject import GithubObject
 from github.Issue import IssueSearchResult
+from github.IssueComment import IssueComment
 from github.PaginatedList import PaginatedList
 from github.PullRequest import PullRequest as GithubPullRequest
-from github.PullRequestReview import PullRequestReview
+from github.Repository import Repository
 
 from smorg.auth.store import Credentials
 from smorg.core.contract import (
@@ -43,7 +44,7 @@ class Category(StrEnum):
     NEEDS_YOUR_REVIEW = "needs your review"
     NEEDS_TEAM_REVIEW = "needs your team's review"
     DRAFT = "drafts"
-    WAITING = "waiting review or actions"
+    WAITING = "waiting review or ci"
     NEEDS_ACTION = "needs actions"
     READY_TO_MERGE = "ready to merge"
 
@@ -53,9 +54,18 @@ RESULTS_PER_PAGE = 50
 MAX_PER_QUERY = 50
 MAX_RETRIES = 2
 
-REVIEW_LIMIT = 5
 REVIEWS_FETCH_LIMIT = 25
 BODY_LIMIT = 50_000
+COMMENT_LIMIT = 5
+COMMENTS_FETCH_LIMIT = 25
+COMMENT_BODY_LIMIT = 5_000
+FAILED_NAMES_LIMIT = 10
+CHECK_RUNS_FETCH_LIMIT = 100
+# A count the payload did not carry; rendered as absent, unlike a real zero.
+ABSENT_COUNT = -1
+
+_PASSED_CONCLUSIONS = {"success", "neutral", "skipped"}
+_FAILED_CONCLUSIONS = {"failure", "timed_out", "cancelled", "action_required"}
 
 GRAPHQL_URL = "https://api.github.com/graphql"
 PROFILE_ID = "github-profile"
@@ -105,10 +115,6 @@ QUERIES: tuple[tuple[Category, str], ...] = (
 # How GitHub names an organization that requires SSO, in the body of its 403.
 SAML_ENFORCEMENT = "saml enforcement"
 
-# Where a review that was never submitted sorts. Timezone-aware to match GitHub's own stamps:
-# sorting an aware and a naive datetime together raises.
-NEVER_SUBMITTED = datetime.max.replace(tzinfo=UTC)
-
 
 @dataclass(frozen=True)
 class PullRequest(Item):
@@ -137,11 +143,79 @@ class Profile(Item):
     unavailable: bool = False
 
 
+class ReviewerState(StrEnum):
+    """A reviewer's standing on the pull request, GitHub-sidebar style."""
+
+    REQUESTED = "requested"
+    APPROVED = "approved"
+    CHANGES_REQUESTED = "changes requested"
+    LEFT_COMMENTS = "left comments"
+    DISMISSED = "dismissed"
+
+
 @dataclass(frozen=True)
-class Review:
-    author: str
-    state: str
+class Reviewer:
+    name: str
+    state: ReviewerState
+    # None for a requested reviewer who has not reviewed yet.
     submitted_at: datetime | None
+
+
+_DECIDED_STATES = {
+    "APPROVED": ReviewerState.APPROVED,
+    "CHANGES_REQUESTED": ReviewerState.CHANGES_REQUESTED,
+    "DISMISSED": ReviewerState.DISMISSED,
+}
+
+# Display order: what still blocks the pull request first.
+_STATE_ORDER = (
+    ReviewerState.REQUESTED,
+    ReviewerState.CHANGES_REQUESTED,
+    ReviewerState.APPROVED,
+    ReviewerState.LEFT_COMMENTS,
+    ReviewerState.DISMISSED,
+)
+
+
+@dataclass(frozen=True)
+class CheckSummary:
+    """Pass/fail/running totals for a head commit, with the failing runs' names."""
+
+    passed: int
+    failed: int
+    running: int
+    failed_names: tuple[str, ...]
+    # Failing runs beyond FAILED_NAMES_LIMIT, counted rather than named.
+    hidden_failed: int = 0
+    # The fetch hit CHECK_RUNS_FETCH_LIMIT, so every count is a lower bound.
+    truncated: bool = False
+    available: bool = True
+
+
+UNAVAILABLE_CHECKS = CheckSummary(passed=0, failed=0, running=0, failed_names=(), available=False)
+
+
+@dataclass(frozen=True)
+class Comment:
+    author: str
+    submitted_at: datetime | None
+    body: str
+
+
+@dataclass(frozen=True)
+class Newest[T]:
+    """The newest slice of a list too long to show whole."""
+
+    items: tuple[T, ...]
+    hidden: int = 0
+    hidden_is_lower_bound: bool = False
+
+
+@dataclass(frozen=True)
+class LineCounts:
+    additions: int = ABSENT_COUNT
+    deletions: int = ABSENT_COUNT
+    changed_files: int = ABSENT_COUNT
 
 
 @dataclass(frozen=True)
@@ -149,10 +223,10 @@ class PullRequestDetail:
     body: str
     base: str
     head: str
-    reviews: tuple[Review, ...]
-    # Reviews that were fetched and dropped past REVIEW_LIMIT.
-    hidden_reviews: int = 0
-    hidden_is_lower_bound: bool = False
+    reviewers: tuple[Reviewer, ...]
+    comments: Newest[Comment]
+    counts: LineCounts
+    checks: CheckSummary
 
 
 def _message_of(error: GithubException) -> str:
@@ -207,7 +281,7 @@ def _client(credentials: Credentials, lazy: bool = False) -> Github:
     """A client for one call into GitHub.
 
     `lazy` stops an object built from an address it was handed from fetching its own payload
-    before anything reads it. That is how the detail pane addresses a repository by name without
+    before anything reads it. That is how fetch_detail addresses a repository by name without
     paying a request for it.
     """
     return Github(
@@ -416,18 +490,14 @@ def _pull_request_of(result: IssueSearchResult, category: Category) -> PullReque
 
 
 def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> PullRequestDetail:
-    """The selected pull request's expanded view: description, branches, and
-    the newest reviews.
+    """The selected pull request's expanded view: description, branches, line counts, checks,
+    reviews, and the newest comments.
     """
     if not isinstance(item, PullRequest):
         raise Malformed(f"expected a pull request, got {type(item).__name__}")
     with _client(credentials, lazy=True) as client, _github_errors():
         repository = client.get_repo(item.repository)
         pr = repository.get_pull(item.number)
-        raw_reviews = _first(pr.get_reviews(), REVIEWS_FETCH_LIMIT)
-        all_reviews = [_review_of(raw) for raw in raw_reviews]
-        oldest_first = sorted(all_reviews, key=_submitted_order)
-        newest = oldest_first[-REVIEW_LIMIT:]
         if pr.base:
             base_ref = pr.base.ref
         else:
@@ -440,17 +510,11 @@ def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> Pu
             body=_body_of(pr),
             base=sanitize_line(base_ref),
             head=sanitize_line(head_ref),
-            reviews=tuple(newest),
-            hidden_reviews=max(0, len(raw_reviews) - REVIEW_LIMIT),
-            hidden_is_lower_bound=len(raw_reviews) >= REVIEWS_FETCH_LIMIT,
+            reviewers=_reviewers_of(pr, item.author),
+            comments=_comments_of(pr),
+            counts=_counts_of(pr),
+            checks=_checks_of(repository, pr),
         )
-
-
-def _submitted_order(review: Review) -> datetime:
-    """Pending reviews sort last."""
-    if review.submitted_at is None:
-        return NEVER_SUBMITTED
-    return review.submitted_at
 
 
 def _body_of(pr: GithubPullRequest) -> str:
@@ -461,19 +525,171 @@ def _body_of(pr: GithubPullRequest) -> str:
     return truncate(sanitize_block(raw, limit=None), BODY_LIMIT)
 
 
-def _review_of(raw: PullRequestReview) -> Review:
-    """A typed Review; anything GitHub omitted degrades to "" or None."""
+def _comments_of(pr: GithubPullRequest) -> Newest[Comment]:
+    raw_comments = _first(pr.get_issue_comments(), COMMENTS_FETCH_LIMIT)
+    all_comments = [_comment_of(raw) for raw in raw_comments]
+    return Newest(
+        items=tuple(all_comments[-COMMENT_LIMIT:]),
+        hidden=max(0, len(all_comments) - COMMENT_LIMIT),
+        hidden_is_lower_bound=len(raw_comments) >= COMMENTS_FETCH_LIMIT,
+    )
+
+
+def _count_of(value: object) -> int:
+    """A non-negative count from the payload, or ABSENT_COUNT when missing or misshapen."""
+    if not isinstance(value, int) or value < 0:
+        return ABSENT_COUNT
+    return value
+
+
+def _requested_of(pr: GithubPullRequest) -> list[str]:
+    """Requested reviewers as display names: user logins, then teams as #slug."""
+    try:
+        users = pr.requested_reviewers
+        teams = pr.requested_teams
+    except BadAttributeException:
+        return []
+    names: list[str] = []
+    for user in users:
+        if isinstance(user.login, str) and user.login:
+            names.append(sanitize_line(user.login))
+    for team in teams:
+        if isinstance(team.slug, str) and team.slug:
+            names.append(f"#{sanitize_line(team.slug)}")
+    return names
+
+
+def _reviewers_of(pr: GithubPullRequest, author: str) -> tuple[Reviewer, ...]:
+    """One entry per person or team with standing in the review, requested first.
+
+    The author's COMMENTED wrappers (GitHub's empty artifacts around single inline
+    comments) are not reviewer states and are dropped.
+    """
+    raw_events = _first(pr.get_reviews(), REVIEWS_FETCH_LIMIT)
+    decided: dict[str, Reviewer] = {}
+    commented: dict[str, Reviewer] = {}
+    for raw in raw_events:
+        user = raw.user
+        if user is None or not isinstance(user.login, str) or not user.login:
+            continue
+        name = sanitize_line(user.login)
+        if isinstance(raw.submitted_at, datetime):
+            submitted_at = raw.submitted_at
+        else:
+            submitted_at = None
+        raw_state = raw.state
+        if raw_state in _DECIDED_STATES:
+            state = _DECIDED_STATES[raw_state]
+            decided[name] = Reviewer(name=name, state=state, submitted_at=submitted_at)
+        elif raw_state == "COMMENTED" and name != author:
+            reviewer = Reviewer(
+                name=name, state=ReviewerState.LEFT_COMMENTS, submitted_at=submitted_at
+            )
+            commented[name] = reviewer
+    requested = _requested_of(pr)
+    by_name: dict[str, Reviewer] = {}
+    # Overlay order is precedence: a request beats a past decision, which beats mere comments.
+    for name, reviewer in commented.items():
+        by_name[name] = reviewer
+    for name, reviewer in decided.items():
+        by_name[name] = reviewer
+    for name in requested:
+        by_name[name] = Reviewer(name=name, state=ReviewerState.REQUESTED, submitted_at=None)
+    ordered: list[Reviewer] = []
+    for state in _STATE_ORDER:
+        for reviewer in by_name.values():
+            if reviewer.state is state:
+                ordered.append(reviewer)
+    return tuple(ordered)
+
+
+def _counts_of(pr: GithubPullRequest) -> LineCounts:
+    """The line-change counts; all absent on a misshapen payload."""
+    try:
+        additions = pr.additions
+        deletions = pr.deletions
+        changed_files = pr.changed_files
+    except BadAttributeException:
+        return LineCounts()
+    return LineCounts(
+        additions=_count_of(additions),
+        deletions=_count_of(deletions),
+        changed_files=_count_of(changed_files),
+    )
+
+
+def _comment_of(raw: IssueComment) -> Comment:
+    """A typed Comment; anything GitHub omitted degrades to "" or None."""
     author = raw.user
     if author is None or not isinstance(author.login, str):
         name = ""
     else:
         name = sanitize_line(author.login)
-    if isinstance(raw.state, str):
-        state = sanitize_line(raw.state)
+    if isinstance(raw.body, str):
+        body = truncate(sanitize_block(raw.body, limit=None), COMMENT_BODY_LIMIT)
     else:
-        state = ""
-    if isinstance(raw.submitted_at, datetime):
-        submitted_at = raw.submitted_at
+        body = ""
+    if isinstance(raw.created_at, datetime):
+        submitted_at = raw.created_at
     else:
         submitted_at = None
-    return Review(author=name, state=state, submitted_at=submitted_at)
+    return Comment(author=name, submitted_at=submitted_at, body=body)
+
+
+def _run_state(conclusion: object) -> str:
+    """ "passed"/"failed"/"running" for a check run's conclusion; unknown shapes count as
+    running rather than crying wolf.
+    """
+    if conclusion in _PASSED_CONCLUSIONS:
+        return "passed"
+    if conclusion in _FAILED_CONCLUSIONS:
+        return "failed"
+    return "running"
+
+
+def _status_state(state: object) -> str:
+    """ "passed"/"failed"/"running" for a legacy commit status."""
+    if state == "success":
+        return "passed"
+    if state in ("failure", "error"):
+        return "failed"
+    return "running"
+
+
+def _checks_of(repository: Repository, pr: GithubPullRequest) -> CheckSummary:
+    """Check runs merged with legacy statuses for the head commit; anything unreadable
+    degrades to an unavailable summary, never an error.
+    """
+    head = pr.head
+    if head is None or not isinstance(head.sha, str) or not head.sha:
+        return UNAVAILABLE_CHECKS
+    try:
+        commit = repository.get_commit(head.sha)
+        raw_runs = _first(commit.get_check_runs(), CHECK_RUNS_FETCH_LIMIT)
+        raw_statuses = commit.get_combined_status().statuses
+    except (GithubException, BadAttributeException, requests.RequestException):
+        return UNAVAILABLE_CHECKS
+    names_and_states: list[tuple[str, str]] = []
+    for run in raw_runs:
+        if isinstance(run.name, str):
+            name = sanitize_line(run.name)
+        else:
+            name = ""
+        names_and_states.append((name, _run_state(run.conclusion)))
+    for status in raw_statuses:
+        if isinstance(status.context, str):
+            name = sanitize_line(status.context)
+        else:
+            name = ""
+        names_and_states.append((name, _status_state(status.state)))
+    passed = sum(1 for _, state in names_and_states if state == "passed")
+    running = sum(1 for _, state in names_and_states if state == "running")
+    failed_names = [name for name, state in names_and_states if state == "failed"]
+    return CheckSummary(
+        passed=passed,
+        failed=len(failed_names),
+        running=running,
+        failed_names=tuple(failed_names[:FAILED_NAMES_LIMIT]),
+        hidden_failed=max(0, len(failed_names) - FAILED_NAMES_LIMIT),
+        truncated=len(raw_runs) >= CHECK_RUNS_FETCH_LIMIT,
+    )

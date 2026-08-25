@@ -34,8 +34,9 @@ class GitHubLoading(Static):
     GitHubLoading { height: 1fr; content-align: center middle; }
     """
 
-    def __init__(self) -> None:
-        super().__init__(markup=False)
+    def __init__(self, reason: str, id: str | None = None) -> None:
+        super().__init__(markup=False, id=id)
+        self.reason = reason
         self.bar_position = 0
         self.bar_direction = 1
         self.is_animating = False
@@ -64,7 +65,8 @@ class GitHubLoading(Static):
 
     def render(self) -> RenderResult:
         art = [Text(line, style="dim") for line in _OCTOCAT]
-        return Group(*art, Text(), self._format_bar())
+        caption = Text(self.reason.center(_TRACK_WIDTH), style="dim")
+        return Group(*art, Text(), self._format_bar(), Text(), caption)
 
     def _format_bar(self) -> Text:
         before = self.bar_position

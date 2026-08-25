@@ -102,7 +102,7 @@ class LinearPanel(Panel):
         parts: list[RenderableType] = [
             self._format_detail_header(item, detail),
             Text(),
-            Markdown(description, code_theme="ansi_dark"),
+            Markdown(description),
         ]
         if detail.hidden_comments or detail.hidden_is_lower_bound:
             parts.append(Text())
@@ -112,7 +112,7 @@ class LinearPanel(Panel):
         for comment in detail.comments:
             parts.append(Text())
             parts.append(self._format_byline(comment))
-            parts.append(Markdown(comment.body, code_theme="ansi_dark"))
+            parts.append(Markdown(comment.body))
         return Group(*parts)
 
     def _format_detail_header(self, item: Item, detail: IssueDetail) -> Text:

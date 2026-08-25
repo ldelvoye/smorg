@@ -8,12 +8,14 @@ import pytest
 
 from smorg.shell.terminal_palette import (
     MINIMUM_CONTRAST_RATIO,
+    StatusColors,
     TerminalPalette,
     contrast_ratio,
     ensure_contrast,
     ensure_theme_contrast,
     parse_palette,
     query_terminal_palette,
+    status_colors,
 )
 
 
@@ -287,3 +289,19 @@ def test_a_failing_restore_does_not_crash_or_swallow_a_successful_result(raw_mod
     palette = raw_mode.query(timeout=0.2)
 
     assert palette is not None
+
+
+# --- Semantic status colors, picked by the same luminance test as the palette ---
+
+
+def test_status_colors_follow_the_background():
+    on_black: StatusColors = status_colors((0, 0, 0))
+    on_white: StatusColors = status_colors((255, 255, 255))
+
+    assert on_black.red == "#f85149"
+    assert on_white.red == "#cf222e"
+    assert on_white.yellow == "#9a6700"
+
+
+def test_unknown_backgrounds_get_the_dark_shades():
+    assert status_colors(None) == status_colors((0, 0, 0))

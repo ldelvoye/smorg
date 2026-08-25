@@ -35,6 +35,20 @@
 - Homebrew download
 
 
+## Deferred refactors
+
+Filed by the stage-2 quality sweep (2026-08-25); each is its own PR-sized unit.
+
+- github: split `source.py` — the list fetch, the GraphQL profile, and the five-request
+  detail have outgrown one file, and the detail helpers no longer read in the order of the
+  constructor they feed
+- shell: extract the split detail pane out of the base `Panel` (a subclass or linear-owned)
+  — only linear composes it, and the `query("#detail")` guards it now needs are
+  transitional, not the design
+- linear: adopt the theme-aware `StatusColors` and the shared hidden-line idiom the github
+  tab introduced — two styling systems coexist across tabs today
+
+
 ## Patches
 
 - Show update progress
