@@ -586,8 +586,8 @@ def test_detail_carries_the_body_the_branches_and_the_reviews(github):
 
 def test_detail_costs_one_request_per_thing_it_shows(github):
     """The repository is addressed by name and never read, so it is not
-    fetched — a detail pane that cost three requests to open would make the
-    key that opens it feel like a page load."""
+    fetched — every request behind the pull request view is one of the
+    five things it shows."""
     serving_detail(github, reviews=REVIEWS)
 
     fetch_detail(CREDENTIALS, UNUSED_HTTP, ITEM)

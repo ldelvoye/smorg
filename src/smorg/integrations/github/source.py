@@ -261,7 +261,7 @@ def _client(credentials: Credentials, lazy: bool = False) -> Github:
     """A client for one call into GitHub.
 
     `lazy` stops an object built from an address it was handed from fetching its own payload
-    before anything reads it. That is how the detail pane addresses a repository by name without
+    before anything reads it. That is how fetch_detail addresses a repository by name without
     paying a request for it.
     """
     return Github(

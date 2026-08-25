@@ -63,7 +63,7 @@ def _underline_if_local_path(segment: Segment) -> Segment:
 
 
 class _PlainHeading(Heading):
-    """A heading drawn left-aligned in the theme's style — no centering, no panel."""
+    """A heading drawn left-aligned in the theme's style — no centering."""
 
     def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
         text = self.text
