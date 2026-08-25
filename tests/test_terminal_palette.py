@@ -295,10 +295,12 @@ def test_a_failing_restore_does_not_crash_or_swallow_a_successful_result(raw_mod
 
 
 def test_status_colors_follow_the_background():
-    assert isinstance(status_colors((0, 0, 0)), StatusColors)
-    assert status_colors((0, 0, 0)).red == "#f85149"
-    assert status_colors((255, 255, 255)).red == "#cf222e"
-    assert status_colors((255, 255, 255)).yellow == "#9a6700"
+    on_black: StatusColors = status_colors((0, 0, 0))
+    on_white: StatusColors = status_colors((255, 255, 255))
+
+    assert on_black.red == "#f85149"
+    assert on_white.red == "#cf222e"
+    assert on_white.yellow == "#9a6700"
 
 
 def test_unknown_backgrounds_get_the_dark_shades():
