@@ -18,13 +18,13 @@ async def test_loading_shows_only_while_the_panel_loads():
     panel = GitHubPanel()
     panel.integration_id = "github"
     async with PanelHarness(panel).run_test() as pilot:
-        assert panel.query_one(GitHubLoading).display is True
+        assert panel.query_one("#loading", GitHubLoading).display is True
         assert panel.query_one(GitHubMenu).display is False
         panel.state = PanelState.READY
         panel.items = (profile_item(),)
         panel.refresh()
         await pilot.pause()
-        assert panel.query_one(GitHubLoading).display is False
+        assert panel.query_one("#loading", GitHubLoading).display is False
         assert panel.query_one(GitHubMenu).display is True
         assert panel.app.focused is panel.query_one(GitHubMenu)
 
@@ -33,7 +33,7 @@ async def test_the_animation_runs_only_while_shown():
     panel = GitHubPanel()
     panel.integration_id = "github"
     async with PanelHarness(panel).run_test() as pilot:
-        loading = panel.query_one(GitHubLoading)
+        loading = panel.query_one("#loading", GitHubLoading)
         await pilot.pause()
         await pilot.pause()
         assert loading.is_animating is True
