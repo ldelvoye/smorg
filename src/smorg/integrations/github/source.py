@@ -588,6 +588,7 @@ def _reviewers_of(pr: GithubPullRequest, author: str) -> tuple[Reviewer, ...]:
             commented[name] = reviewer
     requested = _requested_of(pr)
     by_name: dict[str, Reviewer] = {}
+    # Overlay order is precedence: a request beats a past decision, which beats mere comments.
     for name, reviewer in commented.items():
         by_name[name] = reviewer
     for name, reviewer in decided.items():

@@ -42,7 +42,7 @@ class GitHubPanel(Panel):
         self.viewed: PullRequest | None = None
 
     def compose(self) -> ComposeResult:
-        yield GitHubLoading("connecting to github")
+        yield GitHubLoading("connecting to github", id="loading")
         yield GitHubMenu(self)
         yield GitHubInbox(self)
         yield GitHubPullRequestView(self)
@@ -92,13 +92,16 @@ class GitHubPanel(Panel):
         # Focusable only during the loading takeover; at any other time it would sit in the tab
         # order as a bindingless focus stop.
         self.can_focus = is_loading
-        self.query_one(GitHubLoading).display = is_loading
+        self._loading().display = is_loading
         self._menu().display = not is_loading and self.active_view is GitHubView.MENU
         self._inbox().display = not is_loading and self.active_view is GitHubView.INBOX
         showing_pr = not is_loading and self.active_view is GitHubView.PULL_REQUEST
         self._pull_request().display = showing_pr
         if not is_loading and self.has_focus:
             self._active_view_widget().focus()
+
+    def _loading(self) -> GitHubLoading:
+        return self.query_one("#loading", GitHubLoading)
 
     def _menu(self) -> GitHubMenu:
         return self.query_one(GitHubMenu)
@@ -112,6 +115,9 @@ class GitHubPanel(Panel):
     def refresh(
         self, *regions, repaint: bool = True, layout: bool = False, recompose: bool = False
     ):
+        # Each view repaints its own way: the menu is a Static refreshed directly below, the
+        # inbox's body rides the base Panel.refresh's #body query in super().refresh(), and the
+        # pull request view toggles its own children in refresh_content().
         if self.is_mounted:
             self._sync_view_display()
             self._menu().refresh(repaint=repaint, layout=layout)
@@ -135,25 +141,22 @@ class GitHubPanel(Panel):
                 return item
         return None
 
-    def green_ramp(self) -> tuple[str, str, str, str]:
-        """GitHub's contribution greens, picked to sit on this terminal's background."""
+    def _terminal_background(self) -> tuple[int, int, int] | None:
         try:
             palette = getattr(self.app, "palette", None)
         except NoActiveAppError:
-            return _ramp_for_background(None)
+            return None
         if isinstance(palette, TerminalPalette):
-            return _ramp_for_background(palette.background)
-        return _ramp_for_background(None)
+            return palette.background
+        return None
+
+    def green_ramp(self) -> tuple[str, str, str, str]:
+        """GitHub's contribution greens, picked to sit on this terminal's background."""
+        return _ramp_for_background(self._terminal_background())
 
     def status_colors(self) -> StatusColors:
         """Semantic red/yellow/green picked to sit on this terminal's background."""
-        try:
-            palette = getattr(self.app, "palette", None)
-        except NoActiveAppError:
-            return status_colors(None)
-        if isinstance(palette, TerminalPalette):
-            return status_colors(palette.background)
-        return status_colors(None)
+        return status_colors(self._terminal_background())
 
     def unseen_count(self) -> int:
         integration_id = self.integration_id

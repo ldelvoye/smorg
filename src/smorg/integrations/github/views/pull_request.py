@@ -36,6 +36,8 @@ if TYPE_CHECKING:
 
 _BACK_HINT = "‹ esc — inbox"
 _CARD_BORDER_STYLE = "dim"
+# Card titles sit on the dim border; "not dim" stops the border's dim washing their color.
+_CARD_TITLE_STYLE = "bold not dim"
 
 
 def _has_any[T](shown: Newest[T]) -> bool:
@@ -127,11 +129,11 @@ def _format_checks_card(checks: CheckSummary, colors: StatusColors) -> Card:
     if checks.truncated:
         label = f"{label} · …"
     if checks.failed:
-        title = Text(label, style=f"bold not dim {colors.red}")
+        title = Text(label, style=f"{_CARD_TITLE_STYLE} {colors.red}")
     elif checks.running:
-        title = Text(label, style=f"bold not dim {colors.yellow}")
+        title = Text(label, style=f"{_CARD_TITLE_STYLE} {colors.yellow}")
     else:
-        title = Text(label, style=f"bold not dim {colors.green}")
+        title = Text(label, style=f"{_CARD_TITLE_STYLE} {colors.green}")
     body: list[RenderableType] = []
     for name in checks.failed_names:
         line = Text()
@@ -192,7 +194,7 @@ def _format_reviews_card(reviewers: tuple[Reviewer, ...], colors: StatusColors) 
     hidden = len(reviewers) - _MAX_REVIEWER_LINES
     if hidden > 0:
         body.append(Text(f"… {hidden} more reviewers", style="dim"))
-    title = Text(f"reviews ({len(reviewers)})", style="bold not dim")
+    title = Text(f"reviews ({len(reviewers)})", style=_CARD_TITLE_STYLE)
     return _format_card(title, body)
 
 
@@ -203,8 +205,8 @@ def _format_description_card(detail: PullRequestDetail) -> Card:
         body = "no description"
     # Markdown() interprets its input as CommonMark, not Rich's own "[style]" markup, so a
     # hostile "[red]x[/red]" body can't style or hide anything.
-    content = Markdown(body, code_theme="ansi_dark")
-    return _format_card(Text("description", style="bold not dim"), [content])
+    content = Markdown(body)
+    return _format_card(Text("description", style=_CARD_TITLE_STYLE), [content])
 
 
 def _format_comment_heading(comment: Comment) -> Text:
@@ -229,8 +231,8 @@ def _format_comments_card(comments: Newest[Comment]) -> Card:
             body.append(Text())
         body.append(_format_comment_heading(comment))
         if comment.body:
-            body.append(Markdown(comment.body, code_theme="ansi_dark"))
-    title = Text(f"comments ({len(comments.items)})", style="bold not dim")
+            body.append(Markdown(comment.body))
+    title = Text(f"comments ({len(comments.items)})", style=_CARD_TITLE_STYLE)
     return _format_card(title, body)
 
 
@@ -292,7 +294,7 @@ class GitHubPullRequestView(VerticalScroll):
     def compose(self) -> ComposeResult:
         yield _PullRequestBody(self)
         yield ScrollGutter()
-        yield GitHubLoading("loading the pull request")
+        yield GitHubLoading("loading the pull request", id="pull-request-loading")
 
     def on_mount(self) -> None:
         self.refresh_content()
@@ -304,10 +306,8 @@ class GitHubPullRequestView(VerticalScroll):
         if pr is None:
             loading = False
         else:
-            answered = self.panel.detail_for(pr) is not None
-            failed = self.panel.detail_error_for(pr) is not None
-            loading = self.panel.is_detail_pending(pr) and not answered and not failed
-        self.query_one(GitHubLoading).display = loading
+            loading = self.panel.is_detail_pending(pr)
+        self.query_one("#pull-request-loading", GitHubLoading).display = loading
         self.query_one(ScrollGutter).display = not loading
         body = self.query_one(_PullRequestBody)
         body.display = not loading

@@ -34,8 +34,8 @@ class GitHubLoading(Static):
     GitHubLoading { height: 1fr; content-align: center middle; }
     """
 
-    def __init__(self, reason: str) -> None:
-        super().__init__(markup=False)
+    def __init__(self, reason: str, id: str | None = None) -> None:
+        super().__init__(markup=False, id=id)
         self.reason = reason
         self.bar_position = 0
         self.bar_direction = 1

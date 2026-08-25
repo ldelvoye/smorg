@@ -1,4 +1,8 @@
-"""The terminal's real colors, so a screenshot shows what the user sees."""
+"""The terminal's real colors, so a screenshot shows what the user sees.
+
+Also picks Primer's semantic red/yellow/green status shades legible against the detected
+background.
+"""
 
 from __future__ import annotations
 

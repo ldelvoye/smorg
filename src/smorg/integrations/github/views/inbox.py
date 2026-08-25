@@ -32,16 +32,18 @@ _EMPTY_BAND = "all caught up"
 _BACK_HINT = "‹ esc — menu"
 
 _BAND_TITLE_STYLE = "bold underline"
+# Card titles sit on the dim border; "not dim" stops the border's dim washing their color.
+_CARD_TITLE_STYLE = "bold not dim"
 
 
 def _category_style(category: Category, colors: StatusColors) -> str:
     if category is Category.NEEDS_YOUR_REVIEW or category is Category.NEEDS_ACTION:
-        return f"bold not dim {colors.red}"
+        return f"{_CARD_TITLE_STYLE} {colors.red}"
     if category is Category.WAITING:
-        return f"bold not dim {colors.yellow}"
+        return f"{_CARD_TITLE_STYLE} {colors.yellow}"
     if category is Category.READY_TO_MERGE:
-        return f"bold not dim {colors.green}"
-    return "bold not dim"
+        return f"{_CARD_TITLE_STYLE} {colors.green}"
+    return _CARD_TITLE_STYLE
 
 
 _BANDS: tuple[tuple[str, tuple[Category, ...]], ...] = (
