@@ -60,12 +60,29 @@ VIEWER = {
 }
 
 
-def graphql_http(body: object = None, status: int = 200) -> httpx.Client:
+def graphql_http(
+    body: object = None,
+    status: int = 200,
+    authored: object = None,
+    authored_status: int = 200,
+) -> httpx.Client:
+    """A GraphQL client routed by query text: an authored search ("search(" in the query)
+    gets `authored`/`authored_status`, anything else (the viewer query) gets
+    `body`/`status`. Bytes for `authored` simulate an unparseable response.
+    """
     if body is None:
         body = VIEWER
+    if authored is None:
+        authored = {"data": {"search": {"nodes": []}}}
 
     def respond(request: httpx.Request) -> httpx.Response:
         assert request.url == "https://api.github.com/graphql"
+        payload = json.loads(request.content)
+        query = payload.get("query", "")
+        if "search(" in query:
+            if isinstance(authored, bytes):
+                return httpx.Response(authored_status, content=authored)
+            return httpx.Response(authored_status, json=authored)
         return httpx.Response(status, json=body)
 
     return httpx.Client(transport=httpx.MockTransport(respond))
