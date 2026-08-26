@@ -6,6 +6,7 @@ from collections.abc import Iterable
 
 from textual.app import ComposeResult
 
+from smorg.core.contract import Item
 from smorg.integrations.github.loading import GitHubLoading
 from smorg.integrations.github.source import Profile, PullRequest
 from smorg.integrations.github.views import GitHubView
@@ -139,14 +140,18 @@ class GitHubPanel(Panel):
         """GitHub's contribution greens, picked to sit on this terminal's background."""
         return _ramp_for_background(self._terminal_background())
 
+    def seen_items(self) -> tuple[Item, ...]:
+        """The items that participate in seen-state; the profile stays out of the store."""
+        return self.pull_requests()
+
     def unseen_count(self) -> int:
         integration_id = self.integration_id
-        changed = [pr for pr in self.pull_requests() if self.seen.is_changed(integration_id, pr)]
+        changed = [item for item in self.seen_items() if self.seen.is_changed(integration_id, item)]
         return len(changed)
 
     def mark_all_seen(self) -> None:
-        """Mark every shown pull request seen; other item kinds never enter the store."""
-        self.seen.mark_all_seen(self.integration_id, self.pull_requests())
+        """Mark every seen-participating item seen and persist the stamps."""
+        self.seen.mark_all_seen(self.integration_id, self.seen_items())
         self._save_seen()
         self.refresh()
 

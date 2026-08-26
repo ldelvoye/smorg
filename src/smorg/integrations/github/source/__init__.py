@@ -13,6 +13,7 @@ from smorg.integrations.github.source.detail import (
     ReviewerState,
     fetch_detail,
 )
+from smorg.integrations.github.source.fetch import fetch
 from smorg.integrations.github.source.profile import (
     ABSENT_DAY,
     DAYS_PER_WEEK,
@@ -20,7 +21,7 @@ from smorg.integrations.github.source.profile import (
     ContributionWeek,
     Profile,
 )
-from smorg.integrations.github.source.search import Category, PullRequest, fetch
+from smorg.integrations.github.source.search import Category, PullRequest
 
 __all__ = [
     "ABSENT_COUNT",

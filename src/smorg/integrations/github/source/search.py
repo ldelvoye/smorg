@@ -30,7 +30,6 @@ from smorg.integrations.github.source.client import (
     github_errors,
     query_graphql,
 )
-from smorg.integrations.github.source.profile import query_profile
 
 
 class Category(StrEnum):
@@ -89,8 +88,8 @@ class PullRequest(Item):
     category: Category
 
 
-def fetch(credentials: Credentials, http: httpx.Client) -> tuple[Item, ...]:
-    """Every open pull request that is yours or waiting on you, newest first, then the profile."""
+def query_prs(credentials: Credentials, http: httpx.Client) -> tuple[PullRequest, ...]:
+    """Every open pull request that is yours or waiting on you, newest first."""
     found: dict[str, PullRequest] = {}
     # Closed on the way out: a client owns a connection pool, and a dashboard that refreshes
     # every time you look at it would otherwise leave one behind per refresh.
@@ -105,10 +104,7 @@ def fetch(credentials: Credentials, http: httpx.Client) -> tuple[Item, ...]:
         # setdefault again: a pull request the review queries claimed keeps their bucket.
         found.setdefault(pr.id, pr)
     newest_first = sorted(found.values(), key=lambda pr: pr.updated_at, reverse=True)
-    profile = query_profile(credentials, http)
-    items: list[Item] = list(newest_first)
-    items.append(profile)
-    return tuple(items)
+    return tuple(newest_first)
 
 
 def _search(client: Github, query: str) -> list[IssueSearchResult]:
