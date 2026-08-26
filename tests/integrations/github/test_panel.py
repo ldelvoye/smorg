@@ -18,9 +18,17 @@ from smorg.integrations.github.views import GitHubView
 from smorg.integrations.github.views.inbox import GitHubInbox
 from smorg.integrations.github.views.menu import GitHubMenu
 from smorg.integrations.github.views.pull_request import GitHubPullRequestView
+from smorg.integrations.github.views.pushed import GitHubPushedBranches
 from smorg.shell.panel import ScrollGutter
 
-from .helpers import PanelHarness, panel_with, profile_item, pull
+from .helpers import (
+    PanelHarness,
+    panel_with,
+    profile_item,
+    pull,
+    pushed_branch,
+    pushed_branches_item,
+)
 
 
 def detail_with(**overrides) -> PullRequestDetail:
@@ -74,6 +82,25 @@ def test_mark_all_seen_never_stores_the_profile(tmp_path, monkeypatch):
     assert PROFILE_ID not in saved.get("github", {})
 
 
+def test_mark_all_seen_also_stores_pushed_branches(tmp_path, monkeypatch):
+    monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path))
+    seen = SeenState({})
+    branch = pushed_branch()
+    panel = panel_with(pull(42), pushed_branches_item(branch), seen=seen)
+    panel.mark_all_seen()
+    assert not seen.is_changed("github", pull(42))
+    assert not seen.is_changed("github", branch)
+
+
+def test_unseen_count_sums_pull_requests_and_pushed_branches():
+    seen = SeenState({})
+    branch = pushed_branch()
+    panel = panel_with(pull(42), pushed_branches_item(branch), seen=seen)
+    assert panel.unseen_pr_count() == 1
+    assert panel.unseen_branch_count() == 1
+    assert panel.unseen_count() == 2
+
+
 # --- Menu, the initial view, and navigation to the inbox ---
 
 
@@ -88,11 +115,28 @@ def test_help_bindings_follow_the_active_view():
     assert list(panel.help_bindings()) == list(GitHubInbox.BINDINGS)
     panel.active_view = GitHubView.PULL_REQUEST
     assert list(panel.help_bindings()) == list(GitHubPullRequestView.BINDINGS)
+    panel.active_view = GitHubView.PUSHED_BRANCHES
+    assert list(panel.help_bindings()) == list(GitHubPushedBranches.BINDINGS)
 
 
 def test_the_menu_view_has_no_selection_for_mark_unseen():
     panel = panel_with(pull(42))
     assert panel.selected_item() is None
+
+
+async def test_mark_unseen_restores_a_pushed_branchs_changed_state(tmp_path, monkeypatch):
+    monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path))
+    seen = SeenState({})
+    branch = pushed_branch()
+    panel = panel_with(pushed_branches_item(branch), seen=seen)
+    panel.active_view = GitHubView.PUSHED_BRANCHES
+    async with PanelHarness(panel).run_test():
+        panel.mark_seen(branch)
+        assert not seen.is_changed("github", branch)
+
+        panel.mark_unseen()
+
+        assert seen.is_changed("github", branch)
 
 
 async def test_enter_opens_the_inbox_and_escape_returns():

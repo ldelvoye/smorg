@@ -11,10 +11,13 @@ from smorg.core.state import SeenState
 from smorg.integrations.github.panel import GitHubPanel
 from smorg.integrations.github.source import (
     PROFILE_ID,
+    PUSHED_BRANCHES_ID,
     Category,
     ContributionWeek,
     Profile,
     PullRequest,
+    PushedBranch,
+    PushedBranches,
 )
 from smorg.integrations.github.views.inbox import GitHubInbox
 from smorg.integrations.github.views.menu import GitHubMenu
@@ -68,6 +71,40 @@ def unavailable_profile_item() -> Profile:
         login="",
         total_contributions=0,
         weeks=(),
+        unavailable=True,
+    )
+
+
+def pushed_branch(
+    branch: str = "feature-branch",
+    repository: str = "octocat/hello",
+) -> PushedBranch:
+    return PushedBranch(
+        id=f"{repository}:{branch}",
+        updated_at=NOW,
+        url=f"https://github.com/{repository}/tree/{branch}",
+        repository=repository,
+        branch=branch,
+        headline=f"headline of {branch}",
+        compare_url=f"https://github.com/{repository}/pull/new/{branch}",
+    )
+
+
+def pushed_branches_item(*branches: PushedBranch) -> PushedBranches:
+    return PushedBranches(
+        id=PUSHED_BRANCHES_ID,
+        updated_at=datetime(1970, 1, 1, tzinfo=UTC),
+        url="https://github.com",
+        branches=branches,
+    )
+
+
+def unavailable_pushed_branches_item() -> PushedBranches:
+    return PushedBranches(
+        id=PUSHED_BRANCHES_ID,
+        updated_at=datetime(1970, 1, 1, tzinfo=UTC),
+        url="https://github.com",
+        branches=(),
         unavailable=True,
     )
 

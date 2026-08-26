@@ -11,6 +11,7 @@ from smorg.integrations.github.panel import (
     _ramp_for_background,
 )
 from smorg.integrations.github.source import ABSENT_DAY, Category, ContributionWeek
+from smorg.integrations.github.views import GitHubView
 from smorg.integrations.github.views.menu import (
     _GUTTER_WIDTH,
     GitHubMenu,
@@ -18,8 +19,18 @@ from smorg.integrations.github.views.menu import (
     _format_graph_rows,
     _format_month_header,
 )
+from smorg.integrations.github.views.pushed import GitHubPushedBranches
 
-from .helpers import menu_with, panel_with, profile_item, pull, unavailable_profile_item
+from .helpers import (
+    PanelHarness,
+    menu_with,
+    panel_with,
+    profile_item,
+    pull,
+    pushed_branch,
+    pushed_branches_item,
+    unavailable_profile_item,
+)
 
 
 def menu_text(menu: GitHubMenu) -> str:
@@ -63,6 +74,48 @@ def test_the_pull_requests_destination_is_listed_and_selected():
     lines = menu.content_lines()
     assert any("▸ pull requests" in line for line in lines)
     assert any("⏎ to open" in line for line in lines)
+
+
+# --- The pushed branches destination ---
+
+
+def test_the_pushed_branches_destination_is_listed_with_its_description():
+    lines = menu_with(profile_item()).content_lines()
+
+    assert any("pushed branches" in line for line in lines)
+    assert any("recent pushes to branches with no pull request yet" in line for line in lines)
+
+
+def test_the_badge_shows_unseen_pushed_branches_and_hides_once_seen():
+    seen = SeenState({})
+    branch = pushed_branch()
+    unseen_text = "\n".join(
+        menu_with(profile_item(), pushed_branches_item(branch), seen=seen).content_lines()
+    )
+    assert "● 1 update" in unseen_text
+
+    seen.mark_seen("github", branch)
+    seen_text = "\n".join(
+        menu_with(profile_item(), pushed_branches_item(branch), seen=seen).content_lines()
+    )
+    assert "● 1 update" not in seen_text
+
+
+async def test_cursor_navigation_reaches_pushed_branches_and_opening_it_shows_the_view():
+    panel = panel_with(profile_item())
+    async with PanelHarness(panel).run_test() as pilot:
+        menu = panel.query_one(GitHubMenu)
+        assert menu.destination_cursor == 0
+
+        menu.action_next_destination()
+
+        assert menu.destination_cursor == 1
+
+        menu.action_open_destination()
+        await pilot.pause()
+
+        assert panel.active_view is GitHubView.PUSHED_BRANCHES
+        assert panel.query_one(GitHubPushedBranches).display is True
 
 
 # --- Opening the signed-in user's GitHub profile ---
