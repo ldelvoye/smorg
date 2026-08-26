@@ -24,10 +24,10 @@ def failing_http() -> httpx.Client:
 # --- The viewer's profile and contribution calendar ---
 
 
-def test_the_profile_arrives_last_with_parsed_weeks(github):
+def test_the_profile_arrives_with_parsed_weeks_before_pushed_branches(github):
     items = fetch(CREDENTIALS, graphql_http())
 
-    profile = items[-1]
+    profile = items[-2]
     assert isinstance(profile, Profile)
     assert profile.id == PROFILE_ID
     assert profile.login == "octocat"
@@ -53,13 +53,13 @@ def test_a_totally_unreachable_graphql_endpoint_stops_the_fetch(github):
 def test_a_graphql_error_status_degrades_to_an_unavailable_profile(github):
     items = fetch(CREDENTIALS, graphql_http({"message": "no"}, status=403))
 
-    assert isinstance(items[-1], Profile) and items[-1].unavailable is True
+    assert isinstance(items[-2], Profile) and items[-2].unavailable is True
 
 
 def test_a_misshapen_graphql_payload_degrades_instead_of_raising(github):
     items = fetch(CREDENTIALS, graphql_http({"data": {"viewer": "what"}}))
 
-    assert isinstance(items[-1], Profile) and items[-1].unavailable is True
+    assert isinstance(items[-2], Profile) and items[-2].unavailable is True
 
 
 def test_a_misshapen_week_start_degrades_to_an_unavailable_profile(github):
@@ -71,7 +71,7 @@ def test_a_misshapen_week_start_degrades_to_an_unavailable_profile(github):
 
     items = fetch(CREDENTIALS, graphql_http(hostile))
 
-    assert isinstance(items[-1], Profile) and items[-1].unavailable is True
+    assert isinstance(items[-2], Profile) and items[-2].unavailable is True
     assert [pull.id for pull in only_pull_requests(items)] == ["octocat/hello#42"]
 
 
@@ -82,7 +82,7 @@ def test_an_empty_login_degrades_to_an_unavailable_profile(github):
 
     items = fetch(CREDENTIALS, graphql_http(hostile))
 
-    assert isinstance(items[-1], Profile) and items[-1].unavailable is True
+    assert isinstance(items[-2], Profile) and items[-2].unavailable is True
     assert [pull.id for pull in only_pull_requests(items)] == ["octocat/hello#42"]
 
 
@@ -90,7 +90,7 @@ def test_the_profile_login_is_sanitized(github):
     hostile = json.loads(json.dumps(VIEWER))
     hostile["data"]["viewer"]["login"] = "octo\x1b[31mcat"
 
-    profile = fetch(CREDENTIALS, graphql_http(hostile))[-1]
+    profile = fetch(CREDENTIALS, graphql_http(hostile))[-2]
 
     assert isinstance(profile, Profile)
     assert "\x1b" not in profile.login

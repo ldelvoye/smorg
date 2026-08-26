@@ -12,3 +12,4 @@ class GitHubView(StrEnum):
     MENU = "menu"
     INBOX = "inbox"
     PULL_REQUEST = "pull request"
+    PUSHED_BRANCHES = "pushed branches"

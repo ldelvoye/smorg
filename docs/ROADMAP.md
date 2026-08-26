@@ -17,7 +17,6 @@
 
 - Add gh login auth method
 
-- Add "recently pushed" menu -> shows the pushes made to feature branches that are not merge commits, or already involved in a PR. Menu should offer to see diffs (out of scope, implement the diff viewer after) and open a PR against the head branch (brings to github web)
 - Add view diffs on PRs (show against destination branch) and recently pushed (offer to show against head branch or just the latest commit's diffs)
 - Enable creating PRs from the recently pushed menu (requires write access feature)
 

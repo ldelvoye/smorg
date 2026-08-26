@@ -23,7 +23,18 @@ from smorg.shell.terminal_palette import StatusColors
 if TYPE_CHECKING:
     from smorg.integrations.github.panel import GitHubPanel
 
-_DESTINATIONS: tuple[tuple[str, GitHubView], ...] = (("pull requests", GitHubView.INBOX),)
+_DESTINATIONS: tuple[tuple[str, str, GitHubView], ...] = (
+    (
+        "pull requests",
+        "your open pull requests and the ones waiting on your review",
+        GitHubView.INBOX,
+    ),
+    (
+        "pushed branches",
+        "recent pushes to branches with no pull request yet",
+        GitHubView.PUSHED_BRANCHES,
+    ),
+)
 
 # Two glyph-and-space cells per graph week column.
 _CELL_WIDTH = 2
@@ -49,29 +60,42 @@ def _format_welcome(login: str) -> Text:
     return Text("welcome back", style="bold")
 
 
+def _update_noun(count: int) -> str:
+    if count == 1:
+        return "update"
+    return "updates"
+
+
 def _format_updates(unseen_count: int, colors: StatusColors) -> Text:
     if unseen_count == 0:
         return Text("you're all caught up", style="dim")
-    if unseen_count == 1:
-        noun = "update"
-    else:
-        noun = "updates"
+    noun = _update_noun(unseen_count)
     line = Text()
     line.append(f"{CHANGED_MARK} ", style=colors.green)
     line.append(f"{unseen_count} {noun} since you last looked")
     return line
 
 
-def _format_destination(label: str, selected: bool) -> Text:
-    line = Text()
+def _format_destination_lines(
+    label: str, description: str, count: int, selected: bool, colors: StatusColors
+) -> tuple[Text, Text]:
+    head = Text()
     if selected:
-        line.append(f"{SELECTED_MARK} ", style="bold")
-        line.append(label, style="bold")
-        line.append("    ")
-        line.append(f"{_ENTER_GLYPH} to open", style="dim")
+        head.append(f"{SELECTED_MARK} ", style="bold")
+        head.append(label, style="bold")
     else:
-        line.append(f"  {label}")
-    return line
+        head.append(f"  {label}")
+    if count > 0:
+        noun = _update_noun(count)
+        head.append("    ")
+        head.append(f"{CHANGED_MARK} ", style=colors.green)
+        head.append(f"{count} {noun}")
+    if selected:
+        head.append("    ")
+        head.append(f"{_ENTER_GLYPH} to open", style="dim")
+    detail = Text()
+    detail.append(f"    {description}", style="dim")
+    return head, detail
 
 
 def _format_day(level: int, ramp: tuple[str, str, str, str]) -> tuple[str, str | None]:
@@ -170,14 +194,26 @@ class GitHubMenu(Static):
             login = profile.login
         else:
             login = ""
+        colors = self.panel.status_colors()
         parts: list[RenderableType] = [_format_welcome(login), Text()]
-        parts.append(_format_updates(self.panel.unseen_count(), self.panel.status_colors()))
+        parts.append(_format_updates(self.panel.unseen_count(), colors))
         parts.append(Text())
         parts.append(self._format_graph_card())
         parts.append(Text())
-        for index, (label, _) in enumerate(_DESTINATIONS):
-            parts.append(_format_destination(label, index == self.destination_cursor))
+        for index, (label, description, view) in enumerate(_DESTINATIONS):
+            if index > 0:
+                parts.append(Text())
+            selected = index == self.destination_cursor
+            count = self._destination_count(view)
+            head, detail = _format_destination_lines(label, description, count, selected, colors)
+            parts.append(head)
+            parts.append(detail)
         return Group(*parts)
+
+    def _destination_count(self, view: GitHubView) -> int:
+        if view is GitHubView.INBOX:
+            return self.panel.unseen_pr_count()
+        return self.panel.unseen_branch_count()
 
     def _format_graph_card(self) -> RenderableType:
         profile = self.panel.profile()
@@ -217,7 +253,7 @@ class GitHubMenu(Static):
         self.refresh()
 
     def action_open_destination(self) -> None:
-        _, destination = _DESTINATIONS[self.destination_cursor]
+        _, _, destination = _DESTINATIONS[self.destination_cursor]
         self.panel.show_view(destination)
 
     def action_open_profile(self) -> None:

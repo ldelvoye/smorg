@@ -65,20 +65,42 @@ def graphql_http(
     status: int = 200,
     authored: object = None,
     authored_status: int = 200,
+    pushed: object = None,
+    pushed_status: int = 200,
+    events: object = None,
+    events_status: int = 200,
 ) -> httpx.Client:
-    """A GraphQL client routed by query text: an authored search ("search(" in the query)
-    gets `authored`/`authored_status`, anything else (the viewer query) gets
-    `body`/`status`. Bytes for `authored` simulate an unparseable response.
+    """A recorded GitHub client. GET https://api.github.com/user answers a fixed viewer
+    login; GET /users/octocat/events answers `events`/`events_status`. A GraphQL POST is
+    routed by query text: a qualification query ("qualifiedName" in the query) gets
+    `pushed`/`pushed_status`, an authored search ("search(" in the query) gets
+    `authored`/`authored_status`, anything else (the viewer profile query) gets
+    `body`/`status`. Bytes for `authored`, `pushed`, or `events` simulate an unparseable
+    response.
     """
     if body is None:
         body = VIEWER
     if authored is None:
         authored = {"data": {"search": {"nodes": []}}}
+    if pushed is None:
+        pushed = {"data": {}}
+    if events is None:
+        events = []
 
     def respond(request: httpx.Request) -> httpx.Response:
+        if request.url == "https://api.github.com/user":
+            return httpx.Response(200, json={"login": "octocat"})
+        if request.url.path.startswith("/users/octocat/events"):
+            if isinstance(events, bytes):
+                return httpx.Response(events_status, content=events)
+            return httpx.Response(events_status, json=events)
         assert request.url == "https://api.github.com/graphql"
         payload = json.loads(request.content)
         query = payload.get("query", "")
+        if "qualifiedName" in query:
+            if isinstance(pushed, bytes):
+                return httpx.Response(pushed_status, content=pushed)
+            return httpx.Response(pushed_status, json=pushed)
         if "search(" in query:
             if isinstance(authored, bytes):
                 return httpx.Response(authored_status, content=authored)
