@@ -16,6 +16,10 @@ To install it once and reuse it:
     uv tool install smorg
     smorg
 
+Or with Homebrew:
+
+    brew install ldelvoye/tap/smorg
+
 Press `^ + p` and pick "Add integration" to connect one, then select the desired connection method.
 
 `smorg connect <integration>` does the same from the CLI, and is also how you re-authenticate a tab whose token has expired or been revoked
