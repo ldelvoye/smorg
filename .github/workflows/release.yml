@@ -76,9 +76,13 @@ jobs:
       - run: |
           VERSION="$(uv version --short)"
           SDIST_SHA256="$(sha256sum "dist/smorg-${VERSION}.tar.gz" | cut -d' ' -f1)"
+          # PyPI serves files at their blake2b-256 path immediately, while the
+          # legacy packages/source alias can 404 for a while after publish.
+          SDIST_BLAKE2="$(python3 -c "import hashlib,sys; print(hashlib.blake2b(open(sys.argv[1],'rb').read(), digest_size=32).hexdigest())" "dist/smorg-${VERSION}.tar.gz")"
+          SDIST_URL="https://files.pythonhosted.org/packages/${SDIST_BLAKE2:0:2}/${SDIST_BLAKE2:2:2}/${SDIST_BLAKE2:4}/smorg-${VERSION}.tar.gz"
           REQUIREMENTS_SHA256="$(sha256sum requirements.txt | cut -d' ' -f1)"
-          export VERSION SDIST_SHA256 REQUIREMENTS_SHA256
-          envsubst "\${VERSION} \${SDIST_SHA256} \${REQUIREMENTS_SHA256}" \
+          export VERSION SDIST_URL SDIST_SHA256 REQUIREMENTS_SHA256
+          envsubst "\${VERSION} \${SDIST_URL} \${SDIST_SHA256} \${REQUIREMENTS_SHA256}" \
             < packaging/homebrew/smorg.rb > tap/Formula/smorg.rb
           cd tap
           git config user.name "github-actions[bot]"
