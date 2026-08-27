@@ -259,7 +259,7 @@ class _PullRequestBody(Static):
 class GitHubPullRequestView(VerticalScroll):
     BINDINGS = [
         Binding("o", "open_in_github", "open in GitHub", show=False),
-        Binding("r", "reload", "reload this pull request", show=False),
+        Binding("enter", "view_diff", "view the diff", show=False),
         Binding("escape", "back_to_inbox", "back to inbox", show=False),
     ]
 
@@ -333,8 +333,8 @@ class GitHubPullRequestView(VerticalScroll):
             return
         webbrowser.open(pr.url)
 
-    def action_reload(self) -> None:
-        self.panel.reload_viewed()
+    def action_view_diff(self) -> None:
+        self.panel.open_diff()
 
     def action_back_to_inbox(self) -> None:
         self.panel.close_pull_request()

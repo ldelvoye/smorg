@@ -12,4 +12,5 @@ class GitHubView(StrEnum):
     MENU = "menu"
     INBOX = "inbox"
     PULL_REQUEST = "pull request"
+    DIFF = "diff"
     PUSHED_BRANCHES = "pushed branches"

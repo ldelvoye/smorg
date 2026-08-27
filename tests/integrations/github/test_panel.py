@@ -11,10 +11,13 @@ from smorg.integrations.github.source import (
     PROFILE_ID,
     UNAVAILABLE_CHECKS,
     Category,
+    FileDiff,
     LineCounts,
     PullRequestDetail,
+    PullRequestDiff,
 )
 from smorg.integrations.github.views import GitHubView
+from smorg.integrations.github.views.diff import GitHubDiffView
 from smorg.integrations.github.views.inbox import GitHubInbox
 from smorg.integrations.github.views.menu import GitHubMenu
 from smorg.integrations.github.views.pull_request import GitHubPullRequestView
@@ -304,6 +307,49 @@ async def test_escape_still_works_while_the_detail_loads(tmp_path, monkeypatch):
         await pilot.press("escape")
 
         assert panel.active_view is GitHubView.INBOX
+
+
+# --- The diff view ---
+
+
+def file_diff(path: str) -> FileDiff:
+    return FileDiff(
+        path=path, previous_path="", status="modified", additions=1, deletions=0, patch="+x"
+    )
+
+
+async def test_enter_opens_the_diff_view_and_j_k_clamp_the_selection(tmp_path, monkeypatch):
+    monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path))
+    panel = panel_with(pull(42))
+    async with PanelHarness(panel).run_test() as pilot:
+        await open_pull_request(pilot, panel)
+
+        await pilot.press("enter")
+        await pilot.pause()
+        assert panel.active_view is GitHubView.DIFF
+        assert panel.viewed_diff is not None
+
+        files = (file_diff("a.py"), file_diff("b.py"), file_diff("c.py"))
+        diff = PullRequestDiff(files=files, truncated=False)
+        panel.show_detail(panel.detail_key(panel.viewed_diff), diff)
+        await pilot.pause()
+
+        view = panel.query_one(GitHubDiffView)
+        assert view.selected_index == 0
+
+        for _ in range(4):
+            await pilot.press("j")
+        await pilot.pause()
+        assert view.selected_index == 2
+
+        for _ in range(4):
+            await pilot.press("k")
+        await pilot.pause()
+        assert view.selected_index == 0
+
+        await pilot.press("escape")
+        await pilot.pause()
+        assert panel.active_view is GitHubView.PULL_REQUEST
 
 
 # --- Theme-aware status colors, without a mounted app ---

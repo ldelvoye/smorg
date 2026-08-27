@@ -12,9 +12,12 @@ from smorg.auth.token import TokenMethod
 from smorg.core.contract import Action, ActionClass, AuthPath, Item, Manifest
 from smorg.integrations.github.panel import GitHubPanel
 from smorg.integrations.github.source import (
+    DiffRequest,
     PullRequestDetail,
+    PullRequestDiff,
     fetch,
     fetch_detail,
+    fetch_diff,
 )
 
 TOKEN = TokenMethod(
@@ -46,7 +49,9 @@ class GitHubIntegration:
 
     def fetch_detail(
         self, credentials: Credentials, http: httpx.Client, item: Item
-    ) -> PullRequestDetail:
+    ) -> PullRequestDetail | PullRequestDiff:
+        if isinstance(item, DiffRequest):
+            return fetch_diff(credentials, http, item)
         return fetch_detail(credentials, http, item)
 
 
