@@ -13,6 +13,13 @@ from smorg.integrations.github.source.detail import (
     ReviewerState,
     fetch_detail,
 )
+from smorg.integrations.github.source.diff import (
+    DiffRequest,
+    FileDiff,
+    PullRequestDiff,
+    diff_request_of,
+    fetch_diff,
+)
 from smorg.integrations.github.source.fetch import fetch
 from smorg.integrations.github.source.profile import (
     ABSENT_DAY,
@@ -40,15 +47,20 @@ __all__ = [
     "CheckSummary",
     "Comment",
     "ContributionWeek",
+    "DiffRequest",
+    "FileDiff",
     "LineCounts",
     "Profile",
     "PullRequest",
     "PullRequestDetail",
+    "PullRequestDiff",
     "PushedBranch",
     "PushedBranches",
     "Reviewer",
     "ReviewerState",
+    "diff_request_of",
     "fetch",
     "fetch_detail",
+    "fetch_diff",
     "query_pushed_branches",
 ]

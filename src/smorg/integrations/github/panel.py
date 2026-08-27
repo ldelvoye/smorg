@@ -8,8 +8,16 @@ from textual.app import ComposeResult
 
 from smorg.core.contract import Item
 from smorg.integrations.github.loading import GitHubLoading
-from smorg.integrations.github.source import Profile, PullRequest, PushedBranch, PushedBranches
+from smorg.integrations.github.source import (
+    DiffRequest,
+    Profile,
+    PullRequest,
+    PushedBranch,
+    PushedBranches,
+    diff_request_of,
+)
 from smorg.integrations.github.views import GitHubView
+from smorg.integrations.github.views.diff import GitHubDiffView
 from smorg.integrations.github.views.inbox import GitHubInbox
 from smorg.integrations.github.views.menu import GitHubMenu
 from smorg.integrations.github.views.pull_request import GitHubPullRequestView
@@ -36,12 +44,14 @@ class GitHubPanel(Panel):
         super().__init__()
         self.active_view = GitHubView.MENU
         self.viewed: PullRequest | None = None
+        self.viewed_diff: DiffRequest | None = None
 
     def compose(self) -> ComposeResult:
         yield GitHubLoading("connecting to github", id="loading")
         yield GitHubMenu(self)
         yield GitHubInbox(self)
         yield GitHubPullRequestView(self)
+        yield GitHubDiffView(self)
         yield GitHubPushedBranches(self)
 
     def on_mount(self) -> None:
@@ -63,13 +73,20 @@ class GitHubPanel(Panel):
 
     def close_pull_request(self) -> None:
         self.viewed = None
+        self.viewed_diff = None
         self.show_view(GitHubView.INBOX)
 
-    def reload_viewed(self) -> None:
+    def open_diff(self) -> None:
         if self.viewed is None:
             return
-        self.reload_detail(self.viewed)
-        self.refresh()
+        request = diff_request_of(self.viewed)
+        self.viewed_diff = request
+        self.request_detail(request)
+        self.show_view(GitHubView.DIFF)
+
+    def close_diff(self) -> None:
+        self.viewed_diff = None
+        self.show_view(GitHubView.PULL_REQUEST)
 
     def focus(self, scroll_visible: bool = True):
         if self.state is PanelState.LOADING:
@@ -79,13 +96,15 @@ class GitHubPanel(Panel):
 
     def _active_view_widget(
         self,
-    ) -> GitHubMenu | GitHubInbox | GitHubPullRequestView | GitHubPushedBranches:
+    ) -> GitHubMenu | GitHubInbox | GitHubPullRequestView | GitHubDiffView | GitHubPushedBranches:
         if self.active_view is GitHubView.MENU:
             return self._menu()
         if self.active_view is GitHubView.INBOX:
             return self._inbox()
         if self.active_view is GitHubView.PULL_REQUEST:
             return self._pull_request()
+        if self.active_view is GitHubView.DIFF:
+            return self._diff_view()
         return self._pushed_branches()
 
     def _sync_view_display(self) -> None:
@@ -98,6 +117,8 @@ class GitHubPanel(Panel):
         self._inbox().display = not is_loading and self.active_view is GitHubView.INBOX
         showing_pr = not is_loading and self.active_view is GitHubView.PULL_REQUEST
         self._pull_request().display = showing_pr
+        showing_diff = not is_loading and self.active_view is GitHubView.DIFF
+        self._diff_view().display = showing_diff
         showing_pushed = not is_loading and self.active_view is GitHubView.PUSHED_BRANCHES
         self._pushed_branches().display = showing_pushed
         if not is_loading and self.has_focus:
@@ -115,6 +136,9 @@ class GitHubPanel(Panel):
     def _pull_request(self) -> GitHubPullRequestView:
         return self.query_one(GitHubPullRequestView)
 
+    def _diff_view(self) -> GitHubDiffView:
+        return self.query_one(GitHubDiffView)
+
     def _pushed_branches(self) -> GitHubPushedBranches:
         return self.query_one(GitHubPushedBranches)
 
@@ -128,6 +152,7 @@ class GitHubPanel(Panel):
             self._sync_view_display()
             self._menu().refresh(repaint=repaint, layout=layout)
             self._pull_request().refresh_content()
+            self._diff_view().refresh_content()
             self._pushed_branches().refresh_content()
         return super().refresh(*regions, repaint=repaint, layout=layout, recompose=recompose)
 
@@ -138,6 +163,8 @@ class GitHubPanel(Panel):
             return GitHubInbox.BINDINGS
         if self.active_view is GitHubView.PULL_REQUEST:
             return GitHubPullRequestView.BINDINGS
+        if self.active_view is GitHubView.DIFF:
+            return GitHubDiffView.BINDINGS
         return GitHubPushedBranches.BINDINGS
 
     def pull_requests(self) -> tuple[PullRequest, ...]:
@@ -196,7 +223,7 @@ class GitHubPanel(Panel):
     def selected_item(self) -> PullRequest | PushedBranch | None:
         if self.active_view is GitHubView.MENU:
             return None
-        if self.active_view is GitHubView.PULL_REQUEST:
+        if self.active_view in (GitHubView.PULL_REQUEST, GitHubView.DIFF):
             return self.viewed
         if self.active_view is GitHubView.PUSHED_BRANCHES:
             if not self.is_mounted:
@@ -211,6 +238,8 @@ class GitHubPanel(Panel):
         keys = super().detail_keys_in_use()
         if self.viewed is not None:
             keys.add(self.detail_key(self.viewed))
+        if self.viewed_diff is not None:
+            keys.add(self.detail_key(self.viewed_diff))
         return keys
 
     def ready_text(self) -> str:
@@ -222,4 +251,6 @@ class GitHubPanel(Panel):
             return "\n".join(self._inbox().content_lines())
         if self.active_view is GitHubView.PULL_REQUEST:
             return "\n".join(self._pull_request().content_lines())
+        if self.active_view is GitHubView.DIFF:
+            return "\n".join(self._diff_view().content_lines())
         return "\n".join(self._pushed_branches().content_lines())

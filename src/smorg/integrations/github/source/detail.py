@@ -80,6 +80,7 @@ class LineCounts:
     additions: int = ABSENT_COUNT
     deletions: int = ABSENT_COUNT
     changed_files: int = ABSENT_COUNT
+    commits: int = ABSENT_COUNT
 
 
 @dataclass(frozen=True)
@@ -265,12 +266,14 @@ def _counts_of(pr: GithubPullRequest) -> LineCounts:
         additions = pr.additions
         deletions = pr.deletions
         changed_files = pr.changed_files
+        commits = pr.commits
     except BadAttributeException:
         return LineCounts()
     return LineCounts(
         additions=_count_of(additions),
         deletions=_count_of(deletions),
         changed_files=_count_of(changed_files),
+        commits=_count_of(commits),
     )
 
 
