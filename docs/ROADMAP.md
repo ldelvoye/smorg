@@ -31,7 +31,6 @@
 
 - Restricted write permissions
 - Enable drop-in self-coded plugins
-- Homebrew download
 
 
 ## Patches
