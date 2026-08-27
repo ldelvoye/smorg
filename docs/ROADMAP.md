@@ -24,7 +24,7 @@
 
 ### Spotify
 
-- `add to queue` and `play now` features
+- `add to queue` and `play now` features (need write access)
 
 
 ## General capabilities
