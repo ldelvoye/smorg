@@ -710,7 +710,7 @@ wheels = [
 
 [[package]]
 name = "smorg"
-version = "1.4.0"
+version = "1.4.1"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

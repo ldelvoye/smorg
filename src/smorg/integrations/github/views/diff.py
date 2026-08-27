@@ -350,10 +350,6 @@ class GitHubDiffView(Vertical):
             self._marquee_hold = _MARQUEE_HOLD_TICKS
         self.query_one(_DiffFileList).refresh(layout=True)
 
-    def _refresh_selection_widgets(self) -> None:
-        self.query_one(_DiffFileList).refresh(layout=True)
-        self.query_one(_DiffCard).refresh(layout=True)
-
     def _show_selection(self) -> None:
         self._marquee_offset = 0
         self._marquee_direction = 1
@@ -432,7 +428,7 @@ class GitHubDiffView(Vertical):
         if self.selected_index < len(diff.files) - 1:
             self.selected_index += 1
             self._show_selection()
-            self._refresh_selection_widgets()
+            self.panel.refresh()
 
     def action_previous_file(self) -> None:
         diff = self._diff()
@@ -441,7 +437,7 @@ class GitHubDiffView(Vertical):
         if self.selected_index > 0:
             self.selected_index -= 1
             self._show_selection()
-            self._refresh_selection_widgets()
+            self.panel.refresh()
 
     def action_open_in_github(self) -> None:
         pr = self.panel.viewed
