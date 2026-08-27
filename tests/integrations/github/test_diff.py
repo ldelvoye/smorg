@@ -23,7 +23,6 @@ def test_file_mapping_degrades_field_by_field():
     renamed = _fake_file(
         filename="new.py",
         previous_filename="old.py",
-        status="renamed",
         additions=3,
         deletions=1,
         patch=None,
@@ -35,7 +34,6 @@ def test_file_mapping_degrades_field_by_field():
     misshapen_counts = _fake_file(
         filename="a.py",
         previous_filename=None,
-        status="modified",
         additions="nope",
         deletions=None,
         patch="+x",
@@ -48,7 +46,6 @@ def test_file_mapping_degrades_field_by_field():
     hostile = _fake_file(
         filename="one\x1b[31mtwo.py",
         previous_filename=None,
-        status="modified",
         additions=1,
         deletions=1,
         patch="one\x1b[31mtwo",
@@ -60,7 +57,6 @@ def test_file_mapping_degrades_field_by_field():
     long_patch = _fake_file(
         filename="big.py",
         previous_filename=None,
-        status="modified",
         additions=1,
         deletions=1,
         patch="x" * (PATCH_LIMIT + 500),

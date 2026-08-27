@@ -6,7 +6,6 @@ import io
 import webbrowser
 from typing import TYPE_CHECKING
 
-from rich import box
 from rich.console import Console, Group, RenderableType
 from rich.panel import Panel as Card
 from rich.text import Text
@@ -14,6 +13,7 @@ from textual.app import ComposeResult, RenderResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.geometry import Region
+from textual.timer import Timer
 from textual.widgets import Static
 
 from smorg.integrations.github.loading import GitHubLoading
@@ -25,7 +25,12 @@ from smorg.integrations.github.source import (
     PullRequestDetail,
     PullRequestDiff,
 )
-from smorg.integrations.github.views import SELECTED_MARK
+from smorg.integrations.github.views import (
+    CARD_TITLE_STYLE,
+    SELECTED_MARK,
+    format_card,
+    format_count,
+)
 from smorg.shell.panel import ScrollGutter
 from smorg.shell.terminal_palette import StatusColors
 
@@ -33,22 +38,33 @@ if TYPE_CHECKING:
     from smorg.integrations.github.panel import GitHubPanel
 
 _BACK_HINT = "‹ esc — pull request"
-_CARD_BORDER_STYLE = "dim"
-_CARD_TITLE_STYLE = "bold not dim"
-# The row width tracks #diff-files-scroll in DEFAULT_CSS: its 36 cells minus 2 cells of
-# padding on each side.
-_FILE_ROW_WIDTH = 32
+# The row width tracks #diff-files-scroll in DEFAULT_CSS: its 48 cells minus its side
+# padding (4) and the file-list card's border and padding (4).
+_FILE_ROW_WIDTH = 40
+_MARQUEE_TICK_SECONDS = 0.1
+# How long the marquee rests at either end of its sweep, counted in marquee ticks.
+_MARQUEE_HOLD_TICKS = 10
 
 
-def _format_card(title: Text, body: list[RenderableType]) -> Card:
-    return Card(
-        Group(*body),
-        title=title,
-        title_align="left",
-        box=box.ROUNDED,
-        border_style=_CARD_BORDER_STYLE,
-        padding=(0, 1),
-    )
+def _format_files_count(diff: PullRequestDiff) -> str:
+    if diff.truncated:
+        return f"{len(diff.files)}+"
+    return str(len(diff.files))
+
+
+def _format_files_label(diff: PullRequestDiff) -> str:
+    count = _format_files_count(diff)
+    if count == "1":
+        return "1 file"
+    return f"{count} files"
+
+
+def _format_volume_segment(diff: PullRequestDiff, detail: PullRequestDetail | None) -> Text:
+    parts: list[str] = []
+    if detail is not None and detail.counts.commits != ABSENT_COUNT:
+        parts.append(format_count(detail.counts.commits, "commit"))
+    parts.append(_format_files_label(diff))
+    return Text(", ".join(parts), style="dim")
 
 
 def _format_totals_line(
@@ -56,16 +72,15 @@ def _format_totals_line(
 ) -> Text:
     segments: list[Text] = []
     if detail is not None and detail.head and detail.base:
-        segments.append(Text(f"{detail.head} → {detail.base}", style="dim"))
+        segments.append(Text(f"{detail.base} ← {detail.head}", style="dim"))
+    segments.append(_format_volume_segment(diff, detail))
     additions = sum(file.additions for file in diff.files if file.additions != ABSENT_COUNT)
     deletions = sum(file.deletions for file in diff.files if file.deletions != ABSENT_COUNT)
-    segments.append(Text(f"+{additions}", style=colors.green))
-    segments.append(Text(f"−{deletions}", style=colors.red))
-    if diff.truncated:
-        count_label = f"{len(diff.files)}+ files"
-    else:
-        count_label = f"{len(diff.files)} files"
-    segments.append(Text(count_label, style="dim"))
+    change = Text()
+    change.append(f"+{additions}", style=colors.green)
+    change.append(" ")
+    change.append(f"−{deletions}", style=colors.red)
+    segments.append(change)
     line = Text()
     for index, segment in enumerate(segments):
         if index > 0:
@@ -80,9 +95,9 @@ def _format_header_lines(
     detail: PullRequestDetail | None,
     colors: StatusColors,
 ) -> list[RenderableType]:
+    reference = Text(f"{pr.repository}#{pr.number}", style="dim")
     title = Text(pr.title, style="bold")
-    meta = Text(f"{pr.repository}#{pr.number}", style="dim")
-    lines: list[RenderableType] = [title, meta]
+    lines: list[RenderableType] = [reference, title]
     if diff is not None:
         lines.append(_format_totals_line(diff, detail, colors))
     return lines
@@ -94,7 +109,14 @@ def _format_file_counts(file: FileDiff) -> str:
     return f"+{file.additions} −{file.deletions}"
 
 
-def _format_file_row(file: FileDiff, selected: bool) -> Text:
+def _row_path_width(counts: str) -> int:
+    width = _FILE_ROW_WIDTH - 2
+    if counts:
+        width = width - len(counts) - 1
+    return width
+
+
+def _format_file_row(file: FileDiff, selected: bool, marquee_offset: int) -> Text:
     counts = _format_file_counts(file)
     row = Text()
     if selected:
@@ -104,12 +126,17 @@ def _format_file_row(file: FileDiff, selected: bool) -> Text:
         row.append(" ")
         path_style = ""
     row.append(" ")
-    path_width = _FILE_ROW_WIDTH - 2
-    if counts:
-        path_width = path_width - len(counts) - 1
-    path = Text(file.path, style=path_style)
-    path.truncate(path_width, overflow="ellipsis")
-    row.append_text(path)
+    path_width = _row_path_width(counts)
+    if len(file.path) <= path_width:
+        shown_path = file.path
+    elif selected:
+        shown_path = file.path[marquee_offset : marquee_offset + path_width]
+    else:
+        # An unselected path truncates from the end; selecting it reveals the rest through
+        # the marquee.
+        head = file.path[: path_width - 1]
+        shown_path = f"{head}…"
+    row.append(shown_path, style=path_style)
     if counts:
         row.append(" ")
         row.append(counts, style="dim")
@@ -123,7 +150,7 @@ def _format_file_title(file: FileDiff, colors: StatusColors) -> Text:
         name = f"{file.previous_path} → {file.path}"
     else:
         name = file.path
-    title = Text(name, style=_CARD_TITLE_STYLE)
+    title = Text(name, style=CARD_TITLE_STYLE)
     if file.additions != ABSENT_COUNT and file.deletions != ABSENT_COUNT:
         title.append(" · ")
         title.append(f"+{file.additions}", style=colors.green)
@@ -159,7 +186,7 @@ def _format_card_body(patch: str, colors: StatusColors) -> list[RenderableType]:
 def _format_file_card(file: FileDiff, colors: StatusColors) -> Card:
     title = _format_file_title(file, colors)
     body = _format_card_body(file.patch, colors)
-    return _format_card(title, body)
+    return format_card(title, body)
 
 
 class _DiffHeader(Static):
@@ -211,7 +238,7 @@ class GitHubDiffView(Vertical):
     GitHubDiffView > #diff-header { height: auto; padding: 0 2; margin-bottom: 1; }
     GitHubDiffView > #diff-body { height: 1fr; }
     GitHubDiffView > #diff-body > #diff-files-scroll {
-        width: 36; padding: 0 2; scrollbar-size-vertical: 0;
+        width: 48; padding: 0 2; scrollbar-size-vertical: 0;
     }
     GitHubDiffView > #diff-body > #diff-card-scroll { width: 1fr; scrollbar-size-vertical: 0; }
     """
@@ -221,6 +248,10 @@ class GitHubDiffView(Vertical):
         self.panel = panel
         self.selected_index = 0
         self._shown_request: DiffRequest | None = None
+        self._marquee_offset = 0
+        self._marquee_direction = 1
+        self._marquee_hold = 0
+        self._marquee_timer: Timer | None = None
 
     def compose(self) -> ComposeResult:
         yield _DiffHeader(self)
@@ -234,6 +265,17 @@ class GitHubDiffView(Vertical):
 
     def on_mount(self) -> None:
         self.refresh_content()
+        self._marquee_timer = self.set_interval(
+            _MARQUEE_TICK_SECONDS, self._tick_marquee, pause=True
+        )
+
+    def on_show(self) -> None:
+        if self._marquee_timer is not None:
+            self._marquee_timer.resume()
+
+    def on_hide(self) -> None:
+        if self._marquee_timer is not None:
+            self._marquee_timer.pause()
 
     def refresh_content(self) -> None:
         if not self.is_mounted:
@@ -284,12 +326,44 @@ class GitHubDiffView(Vertical):
             self.selected_index = len(files) - 1
         return self.selected_index != previous
 
+    def _tick_marquee(self) -> None:
+        if not self.is_mounted:
+            return
+        diff = self._diff()
+        if diff is None or not diff.files:
+            return
+        file = diff.files[self.selected_index]
+        counts = _format_file_counts(file)
+        span = len(file.path) - _row_path_width(counts)
+        if span <= 0:
+            self._marquee_offset = 0
+            return
+        if self._marquee_hold > 0:
+            self._marquee_hold -= 1
+            return
+        next_offset = self._marquee_offset + self._marquee_direction
+        if next_offset > span or next_offset < 0:
+            self._marquee_direction = -self._marquee_direction
+            next_offset = self._marquee_offset + self._marquee_direction
+        self._marquee_offset = next_offset
+        if next_offset == 0 or next_offset == span:
+            self._marquee_hold = _MARQUEE_HOLD_TICKS
+        self.query_one(_DiffFileList).refresh(layout=True)
+
+    def _refresh_selection_widgets(self) -> None:
+        self.query_one(_DiffFileList).refresh(layout=True)
+        self.query_one(_DiffCard).refresh(layout=True)
+
     def _show_selection(self) -> None:
+        self._marquee_offset = 0
+        self._marquee_direction = 1
+        self._marquee_hold = _MARQUEE_HOLD_TICKS
         if not self.is_mounted:
             return
         self.query_one("#diff-card-scroll", VerticalScroll).scroll_home(animate=False)
-        # Rows sit two lines apart: each file row is followed by a blank spacer line.
-        row_region = Region(0, self.selected_index * 2, 1, 1)
+        # Rows start below the card's top border and sit two lines apart: each file row is
+        # followed by a blank spacer line.
+        row_region = Region(0, 1 + self.selected_index * 2, 1, 1)
         files_scroll = self.query_one("#diff-files-scroll", VerticalScroll)
         files_scroll.scroll_to_region(row_region, animate=False)
 
@@ -310,8 +384,10 @@ class GitHubDiffView(Vertical):
         for index, file in enumerate(diff.files):
             if rows:
                 rows.append(Text())
-            rows.append(_format_file_row(file, index == self.selected_index))
-        return Group(*rows)
+            rows.append(_format_file_row(file, index == self.selected_index, self._marquee_offset))
+        count = _format_files_count(diff)
+        title = Text(f"files ({count})", style=CARD_TITLE_STYLE)
+        return format_card(title, rows)
 
     def render_card(self) -> RenderableType:
         diff = self._diff()
@@ -356,7 +432,7 @@ class GitHubDiffView(Vertical):
         if self.selected_index < len(diff.files) - 1:
             self.selected_index += 1
             self._show_selection()
-            self.panel.refresh()
+            self._refresh_selection_widgets()
 
     def action_previous_file(self) -> None:
         diff = self._diff()
@@ -365,7 +441,7 @@ class GitHubDiffView(Vertical):
         if self.selected_index > 0:
             self.selected_index -= 1
             self._show_selection()
-            self.panel.refresh()
+            self._refresh_selection_widgets()
 
     def action_open_in_github(self) -> None:
         pr = self.panel.viewed

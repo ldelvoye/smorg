@@ -12,7 +12,7 @@ from smorg.auth.store import Credentials
 from smorg.core.contract import Item, Malformed
 from smorg.core.text import sanitize_block, sanitize_line, truncate
 from smorg.integrations.github.source.client import connect, first, github_errors
-from smorg.integrations.github.source.detail import ABSENT_COUNT
+from smorg.integrations.github.source.detail import ABSENT_COUNT, _count_of
 from smorg.integrations.github.source.search import PullRequest
 
 FILES_FETCH_LIMIT = 100
@@ -23,7 +23,6 @@ PATCH_LIMIT = 20_000
 class FileDiff:
     path: str
     previous_path: str
-    status: str
     additions: int
     deletions: int
     patch: str
@@ -70,11 +69,6 @@ def _file_of(raw: GithubFile) -> FileDiff:
         previous_path = sanitize_line(previous_filename)
     else:
         previous_path = ""
-    status = raw.status
-    if isinstance(status, str):
-        file_status = status
-    else:
-        file_status = ""
     additions, deletions = _counts_of(raw)
     patch = raw.patch
     if isinstance(patch, str):
@@ -84,7 +78,6 @@ def _file_of(raw: GithubFile) -> FileDiff:
     return FileDiff(
         path=path,
         previous_path=previous_path,
-        status=file_status,
         additions=additions,
         deletions=deletions,
         patch=file_patch,
@@ -98,9 +91,3 @@ def _counts_of(raw: GithubFile) -> tuple[int, int]:
     except BadAttributeException:
         return ABSENT_COUNT, ABSENT_COUNT
     return _count_of(additions), _count_of(deletions)
-
-
-def _count_of(value: object) -> int:
-    if not isinstance(value, int) or value < 0:
-        return ABSENT_COUNT
-    return value

@@ -313,9 +313,7 @@ async def test_escape_still_works_while_the_detail_loads(tmp_path, monkeypatch):
 
 
 def file_diff(path: str) -> FileDiff:
-    return FileDiff(
-        path=path, previous_path="", status="modified", additions=1, deletions=0, patch="+x"
-    )
+    return FileDiff(path=path, previous_path="", additions=1, deletions=0, patch="+x")
 
 
 async def test_enter_opens_the_diff_view_and_j_k_clamp_the_selection(tmp_path, monkeypatch):

@@ -40,7 +40,7 @@ def detail(**overrides) -> PullRequestDetail:
             Reviewer(name="hubot", state=ReviewerState.CHANGES_REQUESTED, submitted_at=NOW),
         ),
         "comments": Newest(items=()),
-        "counts": LineCounts(additions=128, deletions=41, changed_files=6),
+        "counts": LineCounts(additions=128, deletions=41, changed_files=6, commits=2),
         "checks": GREEN,
     }
     return PullRequestDetail(**(fields | overrides))
@@ -72,15 +72,15 @@ def test_the_header_names_the_pull_request():
     assert "octocat/hello#42" in text
     assert "octocat" in text
     assert "needs your review" in text
+    assert text.index("octocat/hello#42") < text.index("title of #42")
 
 
 def test_the_header_carries_branches_and_line_counts():
     text = rendered(view_showing(detail()))
 
-    assert "tidy-loader → main" in text
-    assert "+128" in text
-    assert "−41" in text
-    assert "6 files" in text
+    assert "main ← tidy-loader" in text
+    assert "2 commits, 6 files" in text
+    assert "+128 −41" in text
 
 
 def test_absent_counts_hide_their_segments():
@@ -88,6 +88,7 @@ def test_absent_counts_hide_their_segments():
 
     assert "+-1" not in text
     assert "files" not in text
+    assert "commits" not in text
 
 
 def test_all_green_checks_get_a_card_with_a_passing_line():

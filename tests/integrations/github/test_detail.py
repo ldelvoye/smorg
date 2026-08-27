@@ -178,6 +178,7 @@ def test_detail_carries_the_line_counts(github):
     assert detail.counts.additions == 128
     assert detail.counts.deletions == 41
     assert detail.counts.changed_files == 6
+    assert detail.counts.commits == 2
 
 
 def test_missing_line_counts_read_as_absent_not_zero(github):

@@ -223,9 +223,7 @@ class GitHubPanel(Panel):
     def selected_item(self) -> PullRequest | PushedBranch | None:
         if self.active_view is GitHubView.MENU:
             return None
-        if self.active_view is GitHubView.PULL_REQUEST:
-            return self.viewed
-        if self.active_view is GitHubView.DIFF:
+        if self.active_view in (GitHubView.PULL_REQUEST, GitHubView.DIFF):
             return self.viewed
         if self.active_view is GitHubView.PUSHED_BRANCHES:
             if not self.is_mounted:

@@ -6,7 +6,6 @@ import io
 import webbrowser
 from typing import TYPE_CHECKING
 
-from rich import box
 from rich.console import Console, Group, RenderableType
 from rich.panel import Panel as Card
 from rich.text import Text
@@ -21,11 +20,13 @@ from smorg.integrations.github.source import (
     ABSENT_COUNT,
     CheckSummary,
     Comment,
+    LineCounts,
     PullRequest,
     PullRequestDetail,
     Reviewer,
     ReviewerState,
 )
+from smorg.integrations.github.views import CARD_TITLE_STYLE, format_card, format_count
 from smorg.shell.format import age, format_hidden_line
 from smorg.shell.markdown import Markdown
 from smorg.shell.panel import ScrollGutter
@@ -35,36 +36,22 @@ if TYPE_CHECKING:
     from smorg.integrations.github.panel import GitHubPanel
 
 _BACK_HINT = "‹ esc — inbox"
-_CARD_BORDER_STYLE = "dim"
-# Card titles sit on the dim border; "not dim" stops the border's dim washing their color.
-_CARD_TITLE_STYLE = "bold not dim"
 
 
 def _has_any[T](shown: Newest[T]) -> bool:
     return bool(shown.items) or shown.hidden > 0 or shown.hidden_is_lower_bound
 
 
-def _format_card(title: Text, body: list[RenderableType]) -> Card:
-    return Card(
-        Group(*body),
-        title=title,
-        title_align="left",
-        box=box.ROUNDED,
-        border_style=_CARD_BORDER_STYLE,
-        padding=(0, 1),
-    )
-
-
 def _format_header_lines(
     pr: PullRequest, detail: PullRequestDetail | None, colors: StatusColors
 ) -> list[RenderableType]:
+    reference = Text(f"{pr.repository}#{pr.number}", style="dim")
     title = Text(pr.title, style="bold")
     meta = Text(style="dim")
-    meta.append(f"{pr.repository}#{pr.number} · ")
     if pr.author:
         meta.append(f"{pr.author} · ")
     meta.append(str(pr.category))
-    lines: list[RenderableType] = [title, meta]
+    lines: list[RenderableType] = [reference, title, meta]
     if detail is None:
         return lines
     stats = _format_stats_line(detail, colors)
@@ -76,21 +63,40 @@ def _format_header_lines(
     return lines
 
 
+def _format_volume_segment(counts: LineCounts) -> Text | None:
+    parts: list[str] = []
+    if counts.commits != ABSENT_COUNT:
+        parts.append(format_count(counts.commits, "commit"))
+    if counts.changed_files != ABSENT_COUNT:
+        parts.append(format_count(counts.changed_files, "file"))
+    if not parts:
+        return None
+    return Text(", ".join(parts), style="dim")
+
+
+def _format_change_segment(additions: int, deletions: int, colors: StatusColors) -> Text | None:
+    parts: list[Text] = []
+    if additions != ABSENT_COUNT:
+        parts.append(Text(f"+{additions}", style=colors.green))
+    if deletions != ABSENT_COUNT:
+        parts.append(Text(f"−{deletions}", style=colors.red))
+    if not parts:
+        return None
+    separator = Text(" ")
+    return separator.join(parts)
+
+
 def _format_stats_line(detail: PullRequestDetail, colors: StatusColors) -> Text | None:
     counts = detail.counts
     segments: list[Text] = []
     if detail.head and detail.base:
-        segments.append(Text(f"{detail.head} → {detail.base}", style="dim"))
-    if counts.additions != ABSENT_COUNT:
-        segments.append(Text(f"+{counts.additions}", style=colors.green))
-    if counts.deletions != ABSENT_COUNT:
-        segments.append(Text(f"−{counts.deletions}", style=colors.red))
-    if counts.changed_files != ABSENT_COUNT:
-        if counts.changed_files == 1:
-            noun = "file"
-        else:
-            noun = "files"
-        segments.append(Text(f"{counts.changed_files} {noun}", style="dim"))
+        segments.append(Text(f"{detail.base} ← {detail.head}", style="dim"))
+    volume = _format_volume_segment(counts)
+    if volume is not None:
+        segments.append(volume)
+    change = _format_change_segment(counts.additions, counts.deletions, colors)
+    if change is not None:
+        segments.append(change)
     if not segments:
         return None
     line = Text()
@@ -113,11 +119,11 @@ def _format_checks_card(checks: CheckSummary, colors: StatusColors) -> Card:
     if checks.truncated:
         label = f"{label} · …"
     if checks.failed:
-        title = Text(label, style=f"{_CARD_TITLE_STYLE} {colors.red}")
+        title = Text(label, style=f"{CARD_TITLE_STYLE} {colors.red}")
     elif checks.running:
-        title = Text(label, style=f"{_CARD_TITLE_STYLE} {colors.yellow}")
+        title = Text(label, style=f"{CARD_TITLE_STYLE} {colors.yellow}")
     else:
-        title = Text(label, style=f"{_CARD_TITLE_STYLE} {colors.green}")
+        title = Text(label, style=f"{CARD_TITLE_STYLE} {colors.green}")
     body: list[RenderableType] = []
     for name in checks.failed_names:
         line = Text()
@@ -137,7 +143,7 @@ def _format_checks_card(checks: CheckSummary, colors: StatusColors) -> Card:
             else:
                 line.append(f"all {checks.passed} checks passed", style="dim")
             body.append(line)
-    return _format_card(title, body)
+    return format_card(title, body)
 
 
 def _reviewer_sign(state: ReviewerState, colors: StatusColors) -> tuple[str, str]:
@@ -178,8 +184,8 @@ def _format_reviews_card(reviewers: tuple[Reviewer, ...], colors: StatusColors) 
     hidden = len(reviewers) - _MAX_REVIEWER_LINES
     if hidden > 0:
         body.append(Text(f"… {hidden} more reviewers", style="dim"))
-    title = Text(f"reviews ({len(reviewers)})", style=_CARD_TITLE_STYLE)
-    return _format_card(title, body)
+    title = Text(f"reviews ({len(reviewers)})", style=CARD_TITLE_STYLE)
+    return format_card(title, body)
 
 
 def _format_description_card(detail: PullRequestDetail) -> Card:
@@ -190,7 +196,7 @@ def _format_description_card(detail: PullRequestDetail) -> Card:
     # Markdown() interprets its input as CommonMark, not Rich's own "[style]" markup, so a
     # hostile "[red]x[/red]" body can't style or hide anything.
     content = Markdown(body)
-    return _format_card(Text("description", style=_CARD_TITLE_STYLE), [content])
+    return format_card(Text("description", style=CARD_TITLE_STYLE), [content])
 
 
 def _format_comment_heading(comment: Comment) -> Text:
@@ -213,11 +219,12 @@ def _format_comments_card(comments: Newest[Comment]) -> Card:
     for comment in comments.items:
         if body:
             body.append(Text())
+            body.append(Text())
         body.append(_format_comment_heading(comment))
         if comment.body:
             body.append(Markdown(comment.body))
-    title = Text(f"comments ({len(comments.items)})", style=_CARD_TITLE_STYLE)
-    return _format_card(title, body)
+    title = Text(f"comments ({len(comments.items)})", style=CARD_TITLE_STYLE)
+    return format_card(title, body)
 
 
 def _format_sections(detail: PullRequestDetail, colors: StatusColors) -> list[RenderableType]:
