@@ -267,7 +267,7 @@ def _qualification_alias(index: int, pair: _PushPair) -> str:
         f"{_alias(index)}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{\n"
         f"    defaultBranchRef {{ name }}\n"
         f"    ref(qualifiedName: {json.dumps(qualified_name)}) {{\n"
-        f"      associatedPullRequests(first: 1) {{ totalCount }}\n"
+        f"      associatedPullRequests(states: [OPEN, MERGED], first: 1) {{ totalCount }}\n"
         f"      target {{ ... on Commit {{ messageHeadline parents {{ totalCount }} }} }}\n"
         f"    }}\n"
         f"  }}"

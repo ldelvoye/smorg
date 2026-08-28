@@ -13,6 +13,7 @@ from smorg.integrations.github.source.pushed import (
     WINDOW,
     _pushed_pairs_of,
     _PushPair,
+    _qualification_query,
     _qualified_branches_of,
     query_pushed_branches,
 )
@@ -254,6 +255,15 @@ def test_qualified_branches_are_capped_at_max_branches():
     result = _qualified_branches_of(_qualification_payload(*repositories), pairs)
 
     assert len(result.branches) == MAX_BRANCHES
+
+
+def test_qualification_asks_only_about_open_and_merged_pull_requests():
+    """A branch whose PRs were all closed unmerged still needs a PR, so it must not be
+    disqualified by them.
+    """
+    query = _qualification_query([_pair()])
+
+    assert "associatedPullRequests(states: [OPEN, MERGED], first: 1)" in query
 
 
 # --- Escaping ---
