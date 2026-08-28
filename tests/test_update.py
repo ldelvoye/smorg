@@ -99,6 +99,11 @@ def test_a_pipx_install_upgrades_via_pipx(monkeypatch: pytest.MonkeyPatch):
     assert upgrade_command() == "pipx upgrade smorg"
 
 
+def test_a_homebrew_install_upgrades_via_brew(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(sys, "prefix", "/opt/homebrew/Cellar/smorg/1.4.2/libexec")
+    assert upgrade_command() == "brew upgrade smorg"
+
+
 def test_an_unrecognized_install_path_upgrades_via_nothing(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(sys, "prefix", "/Users/x/code/smorg/.venv")
     assert upgrade_command() is None
