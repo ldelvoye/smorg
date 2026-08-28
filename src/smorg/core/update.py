@@ -45,4 +45,6 @@ def upgrade_command() -> str | None:
         return "uv tool upgrade smorg"
     if "pipx" in parts and "venvs" in parts:
         return "pipx upgrade smorg"
+    if ("Cellar", "smorg") in consecutive_pairs:
+        return "brew upgrade smorg"
     return None
