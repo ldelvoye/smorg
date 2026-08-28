@@ -23,7 +23,7 @@ MAX_BRANCHES = 20
 # Wider than MAX_BRANCHES: qualification discards PR-associated pairs, so a tight discovery cap
 # would let busy pull request branches crowd out fresh ones.
 MAX_PAIRS = 50
-WINDOW = timedelta(days=7)
+WINDOW = timedelta(days=30)
 EVENTS_PER_PAGE = 100
 EVENT_PAGE_LIMIT = 3
 
