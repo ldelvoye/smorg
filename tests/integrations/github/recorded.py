@@ -71,9 +71,11 @@ def graphql_http(
     events_status: int = 200,
     discovery: object = None,
     discovery_status: int = 200,
+    activity: dict[str, object] | None = None,
 ) -> httpx.Client:
     """A recorded GitHub client. GET https://api.github.com/user answers a fixed viewer
-    login; GET /users/octocat/events answers `events`/`events_status`. A GraphQL POST is
+    login; GET /users/octocat/events answers `events`/`events_status`; GET
+    /repos/{repo}/activity answers `activity`/repo-specific answers. A GraphQL POST is
     routed by query text: a discovery query ("repositoriesContributedTo" in the query) gets
     `discovery`/`discovery_status`, a qualification query ("qualifiedName" in the query) gets
     `pushed`/`pushed_status`, an authored search ("search(" in the query) gets
@@ -99,6 +101,8 @@ def graphql_http(
         }
     if events is None:
         events = []
+    if activity is None:
+        activity = {}
 
     def respond(request: httpx.Request) -> httpx.Response:
         if request.url == "https://api.github.com/user":
@@ -107,6 +111,14 @@ def graphql_http(
             if isinstance(events, bytes):
                 return httpx.Response(events_status, content=events)
             return httpx.Response(events_status, json=events)
+        if request.url.path.startswith("/repos/") and request.url.path.endswith("/activity"):
+            repo = request.url.path.removeprefix("/repos/").removesuffix("/activity")
+            answer = activity.get(repo, [])
+            if isinstance(answer, int):
+                return httpx.Response(answer)
+            if isinstance(answer, bytes):
+                return httpx.Response(200, content=answer)
+            return httpx.Response(200, json=answer)
         assert request.url == "https://api.github.com/graphql"
         payload = json.loads(request.content)
         query = payload.get("query", "")
