@@ -1,5 +1,5 @@
-"""Tests for the GitHub source's pushed-branches list: discovery from the REST event feed,
-qualification over GraphQL, and the translation of failures into an unavailable container.
+"""Tests for the GitHub source's pushed-branches list: pair collapse, qualification over
+GraphQL, and the pipeline's degradation into unavailable or partial results.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -10,9 +10,8 @@ import pytest
 from smorg.integrations.github.source.pushed import (
     MAX_BRANCHES,
     MAX_PAIRS,
-    WINDOW,
     PushPair,
-    _pushed_pairs_of,
+    _newest_pairs,
     _qualification_query,
     _qualified_branches_of,
     query_pushed_branches,
@@ -21,45 +20,6 @@ from smorg.integrations.github.source.pushed import (
 from .recorded import CREDENTIALS, graphql_http
 
 NOW = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
-_STALE = (NOW - WINDOW - timedelta(days=1)).isoformat()
-
-
-def _push_event(
-    repo: str = "octocat/hello",
-    branch: str = "feature-branch",
-    created_at: str = "2026-08-18T12:00:00Z",
-    event_type: str = "PushEvent",
-    ref_prefix: str = "refs/heads/",
-) -> dict:
-    """A GitHub REST event, shaped like the viewer's public event feed."""
-    return {
-        "type": event_type,
-        "created_at": created_at,
-        "repo": {"name": repo},
-        "payload": {"ref": f"{ref_prefix}{branch}"},
-    }
-
-
-def _recent_push_event(branch: str = "feature-branch") -> dict:
-    created_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
-    return _push_event(branch=branch, created_at=created_at)
-
-
-def _create_event(
-    repo: str = "octocat/hello",
-    branch: object = "feature-branch",
-    created_at: str = "2026-08-18T12:00:00Z",
-    ref_type: str = "branch",
-) -> dict:
-    """A GitHub REST creation event, shaped like the viewer's event feed; branch creations
-    carry a bare ref name, tag and repository creations are the non-qualifying shapes.
-    """
-    return {
-        "type": "CreateEvent",
-        "created_at": created_at,
-        "repo": {"name": repo},
-        "payload": {"ref": branch, "ref_type": ref_type},
-    }
 
 
 def _pair(
@@ -102,96 +62,18 @@ def _qualification_payload(*repositories: dict) -> dict:
     return {"data": data}
 
 
-# --- Discovery: which events become pairs ---
-
-
-_DROPPED_EVENT_CASES: tuple[tuple[str, dict], ...] = (
-    ("not a push event", {"event_type": "WatchEvent"}),
-    ("a tag ref, not a branch", {"branch": "v1.0", "ref_prefix": "refs/tags/"}),
-    ("a naive timestamp", {"created_at": "2026-08-18T12:00:00"}),
-    ("older than the window", {"created_at": _STALE}),
-)
-
-
-@pytest.mark.parametrize(("label", "overrides"), _DROPPED_EVENT_CASES)
-def test_an_event_failing_a_keep_filter_is_dropped(label, overrides):
-    event = _push_event(**overrides)
-
-    pairs = _pushed_pairs_of([[event]], NOW)
-
-    assert pairs == [], label
-
-
-def test_a_branch_creation_counts_as_a_push():
-    """GitHub files a new branch's first push as a CreateEvent, never a PushEvent."""
-    pairs = _pushed_pairs_of([[_create_event()]], NOW)
-
-    assert len(pairs) == 1
-    assert pairs[0].branch == "feature-branch"
-    assert pairs[0].repository == "octocat/hello"
-
-
-_DROPPED_CREATE_CASES: tuple[tuple[str, dict], ...] = (
-    ("a tag creation", {"branch": "v1.0", "ref_type": "tag"}),
-    ("a repository creation", {"branch": None, "ref_type": "repository"}),
-    ("older than the window", {"created_at": _STALE}),
-)
-
-
-@pytest.mark.parametrize(("label", "overrides"), _DROPPED_CREATE_CASES)
-def test_a_creation_failing_a_keep_filter_is_dropped(label, overrides):
-    event = _create_event(**overrides)
-
-    pairs = _pushed_pairs_of([[event]], NOW)
-
-    assert pairs == [], label
-
-
-def test_a_malformed_event_beside_a_good_one_is_skipped_without_losing_the_good_one():
-    junk = {"type": "PushEvent"}
-    good = _push_event()
-
-    pairs = _pushed_pairs_of([[junk, good]], NOW)
-
-    assert [pair.branch for pair in pairs] == ["feature-branch"]
-
-
-def test_a_qualifying_event_becomes_a_push_pair():
-    event = _push_event(
-        repo="octocat/hello", branch="fix/loader-race", created_at="2026-08-18T12:00:00Z"
-    )
-
-    pairs = _pushed_pairs_of([[event]], NOW)
-
-    assert len(pairs) == 1
-    pair = pairs[0]
-    assert pair.repository == "octocat/hello"
-    assert pair.branch == "fix/loader-race"
-    assert pair.pushed_at == datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
-
-
-def test_a_duplicate_pair_collapses_to_the_newest_push():
-    older = _create_event(created_at="2026-08-14T00:00:00Z")
-    newer = _push_event(created_at="2026-08-19T00:00:00Z")
-
-    pairs = _pushed_pairs_of([[older, newer]], NOW)
-
-    assert len(pairs) == 1
-    assert pairs[0].pushed_at == datetime(2026, 8, 19, tzinfo=UTC)
-
-
-def test_pairs_are_capped_at_max_pairs():
-    """The discovery cap is wider than the display cap, so pairs qualification will discard
-    cannot crowd out fresh branches.
-    """
-    events: list[object] = [
-        _push_event(branch=f"branch-{index}", created_at="2026-08-19T00:00:00Z")
+def test_duplicate_pairs_collapse_to_the_newest_push_and_cap_at_max_pairs():
+    older = PushPair("octocat/hello", "feature-branch", NOW - timedelta(days=2))
+    newer = PushPair("octocat/hello", "feature-branch", NOW - timedelta(days=1))
+    others = [
+        PushPair("octocat/hello", f"branch-{index}", NOW - timedelta(days=3))
         for index in range(MAX_PAIRS + 5)
     ]
 
-    pairs = _pushed_pairs_of([events], NOW)
+    pairs = _newest_pairs([older, newer, *others])
 
     assert len(pairs) == MAX_PAIRS
+    assert pairs[0].pushed_at == newer.pushed_at
 
 
 # --- Qualification: which pairs become branches ---
@@ -266,14 +148,39 @@ def test_qualification_asks_only_about_open_and_merged_pull_requests():
     assert "associatedPullRequests(states: [OPEN, MERGED], first: 1)" in query
 
 
+def _activity_row(branch: str, days_ago: int = 1) -> dict:
+    timestamp = (datetime.now(UTC) - timedelta(days=days_ago)).isoformat()
+    return {"ref": f"refs/heads/{branch}", "timestamp": timestamp, "activity_type": "push"}
+
+
+def _pipeline_http(rows: list[dict], pushed: object, **overrides) -> httpx.Client:
+    discovery = _single_repo_discovery()
+    return graphql_http(
+        discovery=discovery, activity={"octocat/hello": rows}, pushed=pushed, **overrides
+    )
+
+
+def _single_repo_discovery() -> dict:
+    fresh = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    node = {"nameWithOwner": "octocat/hello", "pushedAt": fresh}
+    return {
+        "data": {
+            "viewer": {
+                "login": "octocat",
+                "repositories": {"nodes": [node]},
+                "repositoriesContributedTo": {"nodes": []},
+            }
+        }
+    }
+
+
 # --- Escaping ---
 
 
 def test_a_hostile_branch_name_round_trips_through_the_transport():
-    event = _recent_push_event(branch='fix/"weird"\\branch')
-    repository = _qualified_repository()
+    rows = [_activity_row('fix/"weird"\\branch')]
+    http = _pipeline_http(rows, _qualification_payload(_qualified_repository()))
 
-    http = graphql_http(events=[event], pushed=_qualification_payload(repository))
     result = query_pushed_branches(CREDENTIALS, http)
 
     assert result.unavailable is False
@@ -284,15 +191,10 @@ def test_a_hostile_branch_name_round_trips_through_the_transport():
 
 
 def test_two_branches_come_back_newest_push_first():
-    older = _push_event(
-        branch="old", created_at=(datetime.now(UTC) - timedelta(days=5)).isoformat()
-    )
-    newer = _push_event(
-        branch="new", created_at=(datetime.now(UTC) - timedelta(days=1)).isoformat()
-    )
+    rows = [_activity_row("old", days_ago=5), _activity_row("new", days_ago=1)]
     qualification = _qualification_payload(_qualified_repository(), _qualified_repository())
+    http = _pipeline_http(rows, qualification)
 
-    http = graphql_http(events=[newer, older], pushed=qualification)
     result = query_pushed_branches(CREDENTIALS, http)
 
     assert [branch.branch for branch in result.branches] == ["new", "old"]
@@ -312,10 +214,10 @@ def _failing_http() -> httpx.Client:
     "http_factory",
     [
         _failing_http,
-        lambda: graphql_http(events_status=500),
-        lambda: graphql_http(events=b"not json"),
-        lambda: graphql_http(events=[_recent_push_event()], pushed_status=403),
-        lambda: graphql_http(events=[_recent_push_event()], pushed=b"not json"),
+        lambda: graphql_http(discovery=b"not json"),
+        lambda: graphql_http(discovery_status=500),
+        lambda: _pipeline_http([_activity_row("kept")], pushed=b"not json"),
+        lambda: _pipeline_http([_activity_row("kept")], pushed={"data": {}}, pushed_status=403),
     ],
 )
 def test_a_shape_or_transport_surprise_degrades_to_unavailable(http_factory):
@@ -325,13 +227,38 @@ def test_a_shape_or_transport_surprise_degrades_to_unavailable(http_factory):
     assert result.branches == ()
 
 
+def test_one_failing_repo_does_not_blank_the_others():
+    fresh = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    nodes = [
+        {"nameWithOwner": "octocat/hello", "pushedAt": fresh},
+        {"nameWithOwner": "octocat/broken", "pushedAt": fresh},
+    ]
+    discovery = {
+        "data": {
+            "viewer": {
+                "login": "octocat",
+                "repositories": {"nodes": nodes},
+                "repositoriesContributedTo": {"nodes": []},
+            }
+        }
+    }
+    activity = {"octocat/hello": [_activity_row("kept")], "octocat/broken": 403}
+    pushed = _qualification_payload(_qualified_repository())
+    http = graphql_http(discovery=discovery, activity=activity, pushed=pushed)
+
+    result = query_pushed_branches(CREDENTIALS, http)
+
+    assert result.unavailable is False
+    assert [branch.branch for branch in result.branches] == ["kept"]
+
+
 def _http_forbidding_graphql() -> httpx.Client:
     def respond(request: httpx.Request) -> httpx.Response:
-        if request.url == "https://api.github.com/user":
-            return httpx.Response(200, json={"login": "octocat"})
-        if request.url.path.startswith("/users/octocat/events"):
+        if request.url.path.startswith("/repos/") and request.url.path.endswith("/activity"):
             return httpx.Response(200, json=[])
-        raise AssertionError("no GraphQL request should be made when there are no pairs")
+        if b"repositoriesContributedTo" in request.content:
+            return httpx.Response(200, json=_single_repo_discovery())
+        raise AssertionError("no qualification GraphQL request should happen without pairs")
 
     return httpx.Client(transport=httpx.MockTransport(respond))
 

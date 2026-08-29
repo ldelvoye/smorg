@@ -18,7 +18,7 @@ PUSHED_BRANCHES_STAMP = datetime(1970, 1, 1, tzinfo=UTC)
 MAX_BRANCHES = 20
 # Wider than MAX_BRANCHES: qualification discards PR-associated pairs, so a tight discovery cap
 # would let busy pull request branches crowd out fresh ones.
-MAX_PAIRS = 50
+MAX_PAIRS = 150
 WINDOW = timedelta(days=30)
 
 
@@ -40,7 +40,7 @@ class PushedBranches(Item):
 
 @dataclass(frozen=True)
 class PushPair:
-    """A (repository, branch) discovered from the event feed, and when it was last pushed."""
+    """A (repository, branch) discovered from recent activity, and when it was last pushed."""
 
     repository: str
     branch: str

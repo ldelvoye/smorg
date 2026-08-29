@@ -105,7 +105,8 @@ def discover_repos(
         return None
     candidates: list[CandidateRepo] = []
     seen: set[str] = set()
-    for raw_node in owned + contributed:
+    all_nodes = owned + contributed
+    for raw_node in all_nodes:
         candidate = _candidate_of(raw_node, now)
         if candidate is None:
             continue
