@@ -62,6 +62,32 @@ def _qualification_payload(*repositories: dict) -> dict:
     return {"data": data}
 
 
+def _activity_row(branch: str, days_ago: int = 1) -> dict:
+    timestamp = (datetime.now(UTC) - timedelta(days=days_ago)).isoformat()
+    return {"ref": f"refs/heads/{branch}", "timestamp": timestamp, "activity_type": "push"}
+
+
+def _single_repo_discovery() -> dict:
+    fresh = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    node = {"nameWithOwner": "octocat/hello", "pushedAt": fresh}
+    return {
+        "data": {
+            "viewer": {
+                "login": "octocat",
+                "repositories": {"nodes": [node]},
+                "repositoriesContributedTo": {"nodes": []},
+            }
+        }
+    }
+
+
+def _pipeline_http(rows: list[dict], pushed: object, **overrides) -> httpx.Client:
+    discovery = _single_repo_discovery()
+    return graphql_http(
+        discovery=discovery, activity={"octocat/hello": rows}, pushed=pushed, **overrides
+    )
+
+
 def test_duplicate_pairs_collapse_to_the_newest_push_and_cap_at_max_pairs():
     older = PushPair("octocat/hello", "feature-branch", NOW - timedelta(days=2))
     newer = PushPair("octocat/hello", "feature-branch", NOW - timedelta(days=1))
@@ -148,32 +174,6 @@ def test_qualification_asks_only_about_open_and_merged_pull_requests():
     assert "associatedPullRequests(states: [OPEN, MERGED], first: 1)" in query
 
 
-def _activity_row(branch: str, days_ago: int = 1) -> dict:
-    timestamp = (datetime.now(UTC) - timedelta(days=days_ago)).isoformat()
-    return {"ref": f"refs/heads/{branch}", "timestamp": timestamp, "activity_type": "push"}
-
-
-def _pipeline_http(rows: list[dict], pushed: object, **overrides) -> httpx.Client:
-    discovery = _single_repo_discovery()
-    return graphql_http(
-        discovery=discovery, activity={"octocat/hello": rows}, pushed=pushed, **overrides
-    )
-
-
-def _single_repo_discovery() -> dict:
-    fresh = (datetime.now(UTC) - timedelta(days=1)).isoformat()
-    node = {"nameWithOwner": "octocat/hello", "pushedAt": fresh}
-    return {
-        "data": {
-            "viewer": {
-                "login": "octocat",
-                "repositories": {"nodes": [node]},
-                "repositoriesContributedTo": {"nodes": []},
-            }
-        }
-    }
-
-
 # --- Escaping ---
 
 
@@ -250,6 +250,29 @@ def test_one_failing_repo_does_not_blank_the_others():
 
     assert result.unavailable is False
     assert [branch.branch for branch in result.branches] == ["kept"]
+
+
+def test_every_repo_failing_degrades_to_unavailable():
+    fresh = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    nodes = [
+        {"nameWithOwner": "octocat/hello", "pushedAt": fresh},
+        {"nameWithOwner": "octocat/broken", "pushedAt": fresh},
+    ]
+    discovery = {
+        "data": {
+            "viewer": {
+                "login": "octocat",
+                "repositories": {"nodes": nodes},
+                "repositoriesContributedTo": {"nodes": []},
+            }
+        }
+    }
+    http = graphql_http(discovery=discovery, activity={"octocat/hello": 403, "octocat/broken": 403})
+
+    result = query_pushed_branches(CREDENTIALS, http)
+
+    assert result.unavailable is True
+    assert result.branches == ()
 
 
 def _http_forbidding_graphql() -> httpx.Client:

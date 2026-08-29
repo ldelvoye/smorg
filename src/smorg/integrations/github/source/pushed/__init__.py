@@ -65,11 +65,15 @@ def query_pushed_branches(credentials: Credentials, http: httpx.Client) -> Pushe
         return _unavailable_pushed_branches()
     login, candidates = discovered
     found: list[PushPair] = []
+    failures = 0
     for candidate in candidates:
         repo_pairs = activity_pairs(credentials, http, candidate.name, login, now, HOT_TIME_PERIOD)
         if repo_pairs is None:
+            failures += 1
             continue
         found.extend(repo_pairs)
+    if candidates and failures == len(candidates):
+        return _unavailable_pushed_branches()
     pairs = _newest_pairs(found)
     if not pairs:
         return _available_pushed_branches()

@@ -2,6 +2,8 @@
 
 from datetime import UTC, datetime, timedelta
 
+import httpx
+
 from smorg.integrations.github.source.pushed.activity import HOT_TIME_PERIOD, activity_pairs
 from smorg.integrations.github.source.pushed.qualification import WINDOW
 
@@ -57,3 +59,17 @@ def test_a_failure_returns_none_rather_than_raising():
     assert _pairs(b"not json") is None
     assert _pairs(500) is None
     assert _pairs({"not": "a list"}) is None
+
+
+def test_the_activity_request_pins_the_viewer_as_actor():
+    seen_params: dict[str, str] = {}
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        seen_params.update(dict(request.url.params))
+        return httpx.Response(200, json=[])
+
+    http = httpx.Client(transport=httpx.MockTransport(respond))
+    pairs = activity_pairs(CREDENTIALS, http, "octocat/hello", "octocat", NOW, HOT_TIME_PERIOD)
+
+    assert pairs == []
+    assert seen_params["actor"] == "octocat"
