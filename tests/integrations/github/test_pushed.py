@@ -11,8 +11,8 @@ from smorg.integrations.github.source.pushed import (
     MAX_BRANCHES,
     MAX_PAIRS,
     WINDOW,
+    PushPair,
     _pushed_pairs_of,
-    _PushPair,
     _qualification_query,
     _qualified_branches_of,
     query_pushed_branches,
@@ -66,8 +66,8 @@ def _pair(
     repository: str = "octocat/hello",
     branch: str = "feature-branch",
     pushed_at: datetime = NOW,
-) -> _PushPair:
-    return _PushPair(repository=repository, branch=branch, pushed_at=pushed_at)
+) -> PushPair:
+    return PushPair(repository=repository, branch=branch, pushed_at=pushed_at)
 
 
 def _qualified_repository(
