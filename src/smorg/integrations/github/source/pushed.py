@@ -23,7 +23,7 @@ MAX_BRANCHES = 20
 # Wider than MAX_BRANCHES: qualification discards PR-associated pairs, so a tight discovery cap
 # would let busy pull request branches crowd out fresh ones.
 MAX_PAIRS = 50
-WINDOW = timedelta(days=7)
+WINDOW = timedelta(days=30)
 EVENTS_PER_PAGE = 100
 EVENT_PAGE_LIMIT = 3
 
@@ -267,7 +267,7 @@ def _qualification_alias(index: int, pair: _PushPair) -> str:
         f"{_alias(index)}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{\n"
         f"    defaultBranchRef {{ name }}\n"
         f"    ref(qualifiedName: {json.dumps(qualified_name)}) {{\n"
-        f"      associatedPullRequests(first: 1) {{ totalCount }}\n"
+        f"      associatedPullRequests(states: [OPEN, MERGED], first: 1) {{ totalCount }}\n"
         f"      target {{ ... on Commit {{ messageHeadline parents {{ totalCount }} }} }}\n"
         f"    }}\n"
         f"  }}"
