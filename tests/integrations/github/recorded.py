@@ -69,14 +69,19 @@ def graphql_http(
     pushed_status: int = 200,
     events: object = None,
     events_status: int = 200,
+    discovery: object = None,
+    discovery_status: int = 200,
+    activity: dict[str, object] | None = None,
 ) -> httpx.Client:
-    """A recorded GitHub client. GET https://api.github.com/user answers a fixed viewer
-    login; GET /users/octocat/events answers `events`/`events_status`. A GraphQL POST is
-    routed by query text: a qualification query ("qualifiedName" in the query) gets
+    """A recorded GitHub client. GET /users/octocat/events answers `events`/`events_status`;
+    GET /repos/{repo}/activity answers `activity`/repo-specific answers. A GraphQL POST is
+    routed by query text: a discovery query ("repositoriesContributedTo" in the query) gets
+    `discovery`/`discovery_status`, a qualification query ("qualifiedName" in the query) gets
     `pushed`/`pushed_status`, an authored search ("search(" in the query) gets
     `authored`/`authored_status`, anything else (the viewer profile query) gets
-    `body`/`status`. Bytes for `authored`, `pushed`, or `events` simulate an unparseable
-    response.
+    `body`/`status`. Bytes for `authored`, `pushed`, `discovery`, `events`, or an `activity`
+    entry simulate an unparseable response; an int `activity` entry answers that repo with a
+    bare error status.
     """
     if body is None:
         body = VIEWER
@@ -84,19 +89,41 @@ def graphql_http(
         authored = {"data": {"search": {"nodes": []}}}
     if pushed is None:
         pushed = {"data": {}}
+    if discovery is None:
+        discovery = {
+            "data": {
+                "viewer": {
+                    "login": "octocat",
+                    "repositories": {"nodes": []},
+                    "repositoriesContributedTo": {"nodes": []},
+                }
+            }
+        }
     if events is None:
         events = []
+    if activity is None:
+        activity = {}
 
     def respond(request: httpx.Request) -> httpx.Response:
-        if request.url == "https://api.github.com/user":
-            return httpx.Response(200, json={"login": "octocat"})
         if request.url.path.startswith("/users/octocat/events"):
             if isinstance(events, bytes):
                 return httpx.Response(events_status, content=events)
             return httpx.Response(events_status, json=events)
+        if request.url.path.startswith("/repos/") and request.url.path.endswith("/activity"):
+            repo = request.url.path.removeprefix("/repos/").removesuffix("/activity")
+            answer = activity.get(repo, [])
+            if isinstance(answer, int):
+                return httpx.Response(answer)
+            if isinstance(answer, bytes):
+                return httpx.Response(200, content=answer)
+            return httpx.Response(200, json=answer)
         assert request.url == "https://api.github.com/graphql"
         payload = json.loads(request.content)
         query = payload.get("query", "")
+        if "repositoriesContributedTo" in query:
+            if isinstance(discovery, bytes):
+                return httpx.Response(discovery_status, content=discovery)
+            return httpx.Response(discovery_status, json=discovery)
         if "qualifiedName" in query:
             if isinstance(pushed, bytes):
                 return httpx.Response(pushed_status, content=pushed)
