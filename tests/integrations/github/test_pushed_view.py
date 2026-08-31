@@ -74,7 +74,10 @@ def test_no_failures_render_no_warning():
     ids=["unavailable", "absent"],
 )
 def test_unavailable_or_absent_reads_the_same_line(container):
-    items = () if container is None else (container,)
+    if container is None:
+        items = ()
+    else:
+        items = (container,)
     view = GitHubPushedBranches(panel_with(*items))
 
     text = "\n".join(view.content_lines())
