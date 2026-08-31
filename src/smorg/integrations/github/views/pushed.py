@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 _BACK_HINT = "‹ esc — menu"
 _UNAVAILABLE_TEXT = "pushed branches unavailable with this token"
 _EMPTY_TEXT = "nothing recently pushed"
+_FINE_GRAINED_HINT = "a fine-grained token may need contents read access"
 _CARD_TITLE_STYLE = "bold not dim"
 
 
@@ -34,6 +35,15 @@ def _format_meta(branch: PushedBranch) -> str:
     """ "octocat/hello · fix the loader race · 3h"."""
     when = age(branch.updated_at)
     return f"{branch.repository} · {branch.headline} · {when}"
+
+
+def _format_failed_count(count: int) -> str:
+    """ "3 repos couldn't be checked this refresh"."""
+    if count == 1:
+        noun = "repo"
+    else:
+        noun = "repos"
+    return f"{count} {noun} couldn't be checked this refresh"
 
 
 class _PushedBody(Static):
@@ -93,12 +103,19 @@ class GitHubPushedBranches(Vertical):
         return self._selected_in(self._branches())
 
     def render_view(self) -> RenderableType:
-        """The whole ready view: the back hint above the card."""
+        """The whole ready view: the back hint above the card, and any check failures below."""
         parts = [
             Text(_BACK_HINT, style="dim"),
             Text(),
             self.render_content(),
         ]
+        container = self.panel.pushed_branches()
+        if container is not None and not container.unavailable and container.failed_repos:
+            count_text = _format_failed_count(len(container.failed_repos))
+            parts.append(Text())
+            parts.append(Text(count_text, style="dim"))
+            if container.fine_grained_token:
+                parts.append(Text(_FINE_GRAINED_HINT, style="dim"))
         return Group(*parts)
 
     def render_content(self) -> RenderableType:

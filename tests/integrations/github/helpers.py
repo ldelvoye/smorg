@@ -90,12 +90,18 @@ def pushed_branch(
     )
 
 
-def pushed_branches_item(*branches: PushedBranch) -> PushedBranches:
+def pushed_branches_item(
+    *branches: PushedBranch,
+    failed_repos: tuple[str, ...] = (),
+    fine_grained_token: bool = False,
+) -> PushedBranches:
     return PushedBranches(
         id=PUSHED_BRANCHES_ID,
         updated_at=datetime(1970, 1, 1, tzinfo=UTC),
         url="https://github.com",
         branches=branches,
+        failed_repos=failed_repos,
+        fine_grained_token=fine_grained_token,
     )
 
 
