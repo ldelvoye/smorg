@@ -87,14 +87,11 @@ Current state of the test suite might not be ideal. In general though, avoid wri
 
 ## Releasing
 
-`pyproject.toml`'s `version` is the only place a release is recorded —
-`__version__` and everything else read it from installed package metadata.
+`pyproject.toml`'s `version` is the only place a release is recorded — `__version__` and everything else read it from installed package metadata.
 
-1. `uv version --bump <patch|minor|major>`, which bumps `version` in
-   `pyproject.toml` and syncs the lockfile in one step.
+1. `uv version --bump <patch|minor|major>`, which bumps `version` in `pyproject.toml` and syncs the lockfile in one step.
 2. Prune the released section from [docs/ROADMAP.md](docs/ROADMAP.md).
 3. Four gates green (see Setup above).
-4. Commit `chore: release vX.Y.Z`, tag `vX.Y.Z` on that commit, then push the
-   branch and the tag.
-5. `gh release create vX.Y.Z --latest --notes "..."` — a bare tag never shows
-   under GitHub's Releases, only a release does.
+4. Commit `chore: release vX.Y.Z` on a release branch, push it, open the PR, and merge it.
+5. Tag the squash commit on main, annotated, and push the tag: `git tag -a vX.Y.Z -m "vX.Y.Z" <squash>`. Tagging the branch commit instead leaves the tag dangling outside main's history, and only an annotated tag lets a bare `git describe` on main resolve the release (v1.4.4 and earlier are lightweight, so those still need `git describe --tags`).
+6. `gh release create vX.Y.Z --latest --title vX.Y.Z --notes "..."` — a bare tag never shows under GitHub's Releases, only a release does, and without `--title` the release is named after the commit subject.
