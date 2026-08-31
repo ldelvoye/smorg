@@ -28,6 +28,7 @@ from smorg.core.contract import (
     Item,
     Malformed,
     SupportsDetail,
+    SupportsProgress,
 )
 from smorg.core.keys import SHELL_KEYS
 from smorg.core.registry import UnknownIntegration, get_integration
@@ -198,7 +199,6 @@ class SmorgApp(App[None]):
         yield hint
         if is_dev_build():
             yield Static("dev", id="dev-badge", markup=False)
-        yield RefreshIndicator()
         yield Footer()
 
     def _sync_tab_visibility(self) -> None:
@@ -356,20 +356,49 @@ class SmorgApp(App[None]):
         console.print(screen_render)
         return console.export_svg(title=title or self.title, theme=self._screenshot_theme())
 
+    def _refresh_indicator(self, integration_id: str, panel: Panel) -> RefreshIndicator:
+        try:
+            integration = get_integration(integration_id)
+        except UnknownIntegration:
+            phases: tuple[str, ...] = ()
+        else:
+            if isinstance(integration, SupportsProgress):
+                phases = tuple(integration.fetch_phases)
+            else:
+                phases = ()
+        indicator_class = type(panel).refresh_indicator_class
+        matched: RefreshIndicator | None = None
+        for existing in self.query(RefreshIndicator):
+            if matched is None and type(existing) is indicator_class and existing.phases == phases:
+                matched = existing
+                continue
+            # A mismatched indicator is rebuilt rather than mutated, so no timer or display
+            # state carries over from another tab's refresh. Removing every other indicator also
+            # keeps this the only one mounted.
+            existing.remove()
+        if matched is not None:
+            return matched
+        indicator = indicator_class(phases)
+        self.mount(indicator)
+        return indicator
+
     def action_refresh(self) -> None:
         if not self.active_tab:
             return
         panel = self._panel_of(self.active_tab)
         if panel is None:
             return
-        indicator = self.query_one(RefreshIndicator)
+        indicator = self._refresh_indicator(self.active_tab, panel)
         indicator.show_stage(RefreshStage.CONNECTING)
 
         def report(stage: RefreshStage) -> None:
             # Runs on the worker thread; the indicator is UI-thread-only.
             self.call_from_thread(indicator.show_stage, stage)
 
-        self.refresh_tab(self.active_tab, panel, force=True, on_stage=report)
+        def report_phase(index: int) -> None:
+            self.call_from_thread(indicator.show_phase, index)
+
+        self.refresh_tab(self.active_tab, panel, force=True, on_stage=report, on_phase=report_phase)
 
     def action_mark_all_seen(self) -> None:
         """Clear the active tab's change marks.
@@ -456,20 +485,22 @@ class SmorgApp(App[None]):
         panel: Panel,
         force: bool = False,
         on_stage: Callable[[RefreshStage], None] | None = None,
+        on_phase: Callable[[int], None] | None = None,
     ) -> None:
         """Fetch `integration_id`'s items off the UI thread and hand results to panel.
 
         The body runs on a worker thread, and Textual widgets may only be touched from the UI
         thread. That is why panel is a parameter instead of being looked up here, and why every
         widget update goes through `call_from_thread`. `on_stage` is also called on the worker
-        thread, so a callback that touches widgets must go through `call_from_thread` itself.
+        thread, so a callback that touches widgets must go through `call_from_thread` itself;
+        `on_phase` follows the same worker-thread rule.
 
         Whatever happens, `on_stage` receives a final stage: DONE when fresh items landed, FAILED
         otherwise. That way the refresh indicator never gets stuck partway through its bar.
         """
         completed = False
         try:
-            completed = self._fetch_tab(integration_id, panel, force, on_stage)
+            completed = self._fetch_tab(integration_id, panel, force, on_stage, on_phase)
         finally:
             if on_stage is not None:
                 if completed:
@@ -484,6 +515,7 @@ class SmorgApp(App[None]):
         panel: Panel,
         force: bool,
         on_stage: Callable[[RefreshStage], None] | None,
+        on_phase: Callable[[int], None] | None,
     ) -> bool:
         try:
             integration = get_integration(integration_id)
@@ -515,7 +547,21 @@ class SmorgApp(App[None]):
                 # call is next.
                 if on_stage is not None:
                     on_stage(RefreshStage.FETCHING)
-                items = tuple(integration.fetch(credentials, http))
+                if isinstance(integration, SupportsProgress):
+                    phases = integration.fetch_phases
+
+                    def report(index: int) -> None:
+                        # An index outside the declared phases is dropped: a misbehaving
+                        # integration must not crash the refresh worker.
+                        if index < 0 or index >= len(phases):
+                            return
+                        if on_phase is not None:
+                            on_phase(index)
+                        self.call_from_thread(panel.show_fetch_phase, phases[index])
+
+                    items = tuple(integration.fetch_with_progress(credentials, http, report))
+                else:
+                    items = tuple(integration.fetch(credentials, http))
         except CredentialStoreError as error:
             self.call_from_thread(self._show_error, panel, str(error), keep_items=True)
             return False

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -159,5 +159,26 @@ class SupportsDetail(Protocol):
     def fetch_detail(self, credentials: Credentials, http: httpx.Client, item: Item) -> object:
         """One item's expanded detail, in whatever shape this integration's panel renders. The
         shell never inspects it. Raises IntegrationError, never anything else.
+        """
+        ...
+
+
+@runtime_checkable
+class SupportsProgress(Protocol):
+    """An integration whose fetch reports per-phase progress. Optional: the shell
+    isinstance-checks before fetching, so an integration without phases simply never defines
+    fetch_with_progress.
+    """
+
+    @property
+    def fetch_phases(self) -> tuple[str, ...]:
+        """Ordered display labels, one per phase, declared before any fetch runs."""
+        ...
+
+    def fetch_with_progress(
+        self, credentials: Credentials, http: httpx.Client, report: Callable[[int], None]
+    ) -> Sequence[Item]:
+        """Like fetch, calling report(index) as each declared phase begins. Raises
+        IntegrationError, never anything else.
         """
         ...

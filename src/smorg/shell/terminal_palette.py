@@ -13,9 +13,13 @@ import sys
 import time
 from dataclasses import dataclass
 from math import ceil
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from rich.terminal_theme import TerminalTheme
+from textual.types import NoActiveAppError
+
+if TYPE_CHECKING:
+    from textual.widget import Widget
 
 RGB = tuple[int, int, int]
 
@@ -56,6 +60,18 @@ class TerminalPalette:
         return TerminalTheme(
             self.background, self.foreground, list(self.ansi[:8]), list(self.ansi[8:])
         )
+
+
+def widget_background(widget: Widget) -> RGB | None:
+    """The learned terminal background of the widget's running app, when it has one."""
+    try:
+        app = widget.app
+    except NoActiveAppError:
+        return None
+    palette = getattr(app, "palette", None)
+    if isinstance(palette, TerminalPalette):
+        return palette.background
+    return None
 
 
 def _linear(component: int) -> float:

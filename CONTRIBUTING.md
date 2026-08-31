@@ -60,6 +60,7 @@ An integration that outgrows one of these files can turn it into a package of th
 
 - `self.mark_seen(item)`: when an interaction should count as "seen".
 - `fetch_detail` (`SupportsDetail` protocol that's feature-detected by the shell): the details pane fetched and cached by the shell. Your panel never touches the network.
+- `fetch_phases` + `fetch_with_progress` (`SupportsProgress` protocol that's feature-detected by the shell): declared phase labels reported as each begins, shown by the refresh indicator and your panel's `show_fetch_phase` hook.
 - `Action`s: validated against reserved and duplicated keybinds at construction, can be found in the `?` help listing. Action keys should still be bound in `panel.py` as `BINDINGS`.
 
 ## What development support you have

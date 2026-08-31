@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -12,12 +13,14 @@ from smorg.auth.token import TokenMethod
 from smorg.core.contract import Action, ActionClass, AuthPath, Item, Manifest
 from smorg.integrations.github.panel import GitHubPanel
 from smorg.integrations.github.source import (
+    FETCH_PHASES,
     DiffRequest,
     PullRequestDetail,
     PullRequestDiff,
     fetch,
     fetch_detail,
     fetch_diff,
+    fetch_with_progress,
 )
 
 TOKEN = TokenMethod(
@@ -43,9 +46,15 @@ MANIFEST = Manifest(
 class GitHubIntegration:
     manifest: Manifest = MANIFEST
     panel_class: type[GitHubPanel] = GitHubPanel
+    fetch_phases: tuple[str, ...] = FETCH_PHASES
 
     def fetch(self, credentials: Credentials, http: httpx.Client) -> tuple[Item, ...]:
         return fetch(credentials, http)
+
+    def fetch_with_progress(
+        self, credentials: Credentials, http: httpx.Client, report: Callable[[int], None]
+    ) -> tuple[Item, ...]:
+        return fetch_with_progress(credentials, http, report)
 
     def fetch_detail(
         self, credentials: Credentials, http: httpx.Client, item: Item

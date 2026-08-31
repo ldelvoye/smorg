@@ -5,10 +5,10 @@ from __future__ import annotations
 from datetime import date
 
 from smorg.core.state import SeenState
-from smorg.integrations.github.panel import (
+from smorg.integrations.github.palette import (
     _GREEN_RAMP_DARK,
     _GREEN_RAMP_LIGHT,
-    _ramp_for_background,
+    ramp_for_background,
 )
 from smorg.integrations.github.source import ABSENT_DAY, Category, ContributionWeek
 from smorg.integrations.github.views import GitHubView
@@ -223,6 +223,6 @@ def test_the_ramp_follows_the_terminal_background():
 
 
 def test_a_light_background_picks_the_light_ramp():
-    assert _ramp_for_background((250, 250, 250)) == _GREEN_RAMP_LIGHT
-    assert _ramp_for_background((10, 10, 10)) == _GREEN_RAMP_DARK
-    assert _ramp_for_background(None) == _GREEN_RAMP_DARK
+    assert ramp_for_background((250, 250, 250)) == _GREEN_RAMP_LIGHT
+    assert ramp_for_background((10, 10, 10)) == _GREEN_RAMP_DARK
+    assert ramp_for_background(None) == _GREEN_RAMP_DARK

@@ -8,6 +8,8 @@ from textual.app import ComposeResult
 
 from smorg.core.contract import Item
 from smorg.integrations.github.loading import GitHubLoading
+from smorg.integrations.github.palette import ramp_for_background
+from smorg.integrations.github.refresh import GitHubRefreshIndicator
 from smorg.integrations.github.source import (
     DiffRequest,
     Profile,
@@ -23,22 +25,11 @@ from smorg.integrations.github.views.menu import GitHubMenu
 from smorg.integrations.github.views.pull_request import GitHubPullRequestView
 from smorg.integrations.github.views.pushed import GitHubPushedBranches
 from smorg.shell.panel import Panel, PanelState
-from smorg.shell.terminal_palette import relative_luminance
-
-_GREEN_RAMP_DARK = ("#006d32", "#26a641", "#39d353", "#7ee787")
-_GREEN_RAMP_LIGHT = ("#aceebb", "#4ac26b", "#1a7f37", "#044f1e")
-
-
-def _ramp_for_background(background: tuple[int, int, int] | None) -> tuple[str, str, str, str]:
-    if background is None:
-        return _GREEN_RAMP_DARK
-    if relative_luminance(background) > 0.5:
-        return _GREEN_RAMP_LIGHT
-    return _GREEN_RAMP_DARK
 
 
 class GitHubPanel(Panel):
     can_focus = False
+    refresh_indicator_class = GitHubRefreshIndicator
 
     def __init__(self) -> None:
         super().__init__()
@@ -56,6 +47,13 @@ class GitHubPanel(Panel):
 
     def on_mount(self) -> None:
         self._sync_view_display()
+
+    def show_fetch_phase(self, label: str) -> None:
+        if self.state is not PanelState.LOADING or not self.is_mounted:
+            return
+        loading = self._loading()
+        loading.reason = f"fetching {label}"
+        loading.refresh()
 
     def show_view(self, view: GitHubView) -> None:
         self.active_view = view
@@ -185,7 +183,7 @@ class GitHubPanel(Panel):
 
     def green_ramp(self) -> tuple[str, str, str, str]:
         """GitHub's contribution greens, picked to sit on this terminal's background."""
-        return _ramp_for_background(self._terminal_background())
+        return ramp_for_background(self._terminal_background())
 
     def seen_items(self) -> tuple[Item, ...]:
         """The items that participate in seen-state; the profile stays out of the store."""

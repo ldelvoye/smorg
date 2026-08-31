@@ -391,12 +391,11 @@ async def test_nothing_else_happens_while_a_removal_is_in_flight(monkeypatch):
     monkeypatch.setattr("smorg.shell.menu.remove.remove_integration", blocked_removal)
 
     refreshed: list[str] = []
-    monkeypatch.setattr(
-        "smorg.shell.app.SmorgApp.refresh_tab",
-        lambda self, integration_id, panel, force=False, on_stage=None: refreshed.append(
-            integration_id
-        ),
-    )
+
+    def record_refresh(self, integration_id, panel, force=False, on_stage=None, on_phase=None):
+        refreshed.append(integration_id)
+
+    monkeypatch.setattr("smorg.shell.app.SmorgApp.refresh_tab", record_refresh)
     quit_calls: list[None] = []
 
     async def fake_quit(self) -> None:

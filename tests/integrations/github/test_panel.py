@@ -58,7 +58,9 @@ def test_the_panel_and_its_views_never_fetch():
         assert "httpx" not in source, file
         assert "Github(" not in source, file
         assert "import requests" not in source, file
-        assert "fetch" not in source, file
+        # show_fetch_phase and its caption are display-only; drop them before the fetch trip-wire.
+        scrubbed = source.replace("show_fetch_phase", "").replace("fetching", "")
+        assert "fetch" not in scrubbed, file
         assert "shell.app" not in source, file
 
 
