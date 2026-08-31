@@ -39,13 +39,45 @@ def test_an_empty_container_reads_nothing_recently_pushed():
     assert "nothing recently pushed" in text
 
 
+def test_failed_repos_render_a_dim_count_line():
+    item = pushed_branches_item(pushed_branch(), failed_repos=("octocat/broken", "octocat/dark"))
+    view = GitHubPushedBranches(panel_with(item))
+
+    text = "\n".join(view.content_lines())
+
+    assert "2 repos couldn't be checked this refresh" in text
+    assert "fine-grained token" not in text
+
+
+def test_a_fine_grained_token_sharpens_the_warning_even_with_no_branches():
+    item = pushed_branches_item(failed_repos=("octocat/broken",), fine_grained_token=True)
+    view = GitHubPushedBranches(panel_with(item))
+
+    text = "\n".join(view.content_lines())
+
+    assert "nothing recently pushed" in text
+    assert "1 repo couldn't be checked this refresh" in text
+    assert "a fine-grained token may need contents read access" in text
+
+
+def test_no_failures_render_no_warning():
+    view = GitHubPushedBranches(panel_with(pushed_branches_item(pushed_branch())))
+
+    text = "\n".join(view.content_lines())
+
+    assert "couldn't be checked" not in text
+
+
 @pytest.mark.parametrize(
     "container",
     [unavailable_pushed_branches_item(), None],
     ids=["unavailable", "absent"],
 )
 def test_unavailable_or_absent_reads_the_same_line(container):
-    items = () if container is None else (container,)
+    if container is None:
+        items = ()
+    else:
+        items = (container,)
     view = GitHubPushedBranches(panel_with(*items))
 
     text = "\n".join(view.content_lines())

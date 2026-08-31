@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import httpx
@@ -88,12 +89,13 @@ def query_pushed_branches(
         if name not in names:
             names.append(name)
     plan = plan_refresh(names, cache.records, cache.cursor, now)
+    fine_grained_token = credentials.access_token.startswith("github_pat_")
     found: list[PushPair] = []
-    failures = 0
+    failed_repos: list[str] = []
     for name, time_period in plan.calls:
         lookup = activity_lookup(credentials, http, name, login, now, time_period)
         if lookup is None:
-            failures += 1
+            failed_repos.append(name)
             continue
         cache.records[name] = observed(cache.records.get(name), lookup.newest, now)
         found.extend(lookup.pairs)
@@ -102,11 +104,13 @@ def query_pushed_branches(
         cache.save()
     except (ConfigError, OSError):
         pass
-    if plan.calls and failures == len(plan.calls):
+    if plan.calls and len(failed_repos) == len(plan.calls):
         return _unavailable_pushed_branches()
     pairs = _newest_pairs(found)
     if not pairs:
-        return _available_pushed_branches()
+        return _available_pushed_branches(
+            failed_repos=tuple(failed_repos), fine_grained_token=fine_grained_token
+        )
     query = _qualification_query(pairs)
     try:
         response = query_graphql(credentials, http, query)
@@ -118,4 +122,7 @@ def query_pushed_branches(
         payload = response.json()
     except ValueError:
         return _unavailable_pushed_branches()
-    return _qualified_branches_of(payload, pairs)
+    result = _qualified_branches_of(payload, pairs)
+    if result.unavailable:
+        return result
+    return replace(result, failed_repos=tuple(failed_repos), fine_grained_token=fine_grained_token)

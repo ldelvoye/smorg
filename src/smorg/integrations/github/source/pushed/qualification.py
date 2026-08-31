@@ -36,6 +36,8 @@ class PushedBranches(Item):
 
     branches: tuple[PushedBranch, ...]
     unavailable: bool = False
+    failed_repos: tuple[str, ...] = ()
+    fine_grained_token: bool = False
 
 
 @dataclass(frozen=True)
@@ -57,12 +59,18 @@ def _unavailable_pushed_branches() -> PushedBranches:
     )
 
 
-def _available_pushed_branches(branches: tuple[PushedBranch, ...] = ()) -> PushedBranches:
+def _available_pushed_branches(
+    branches: tuple[PushedBranch, ...] = (),
+    failed_repos: tuple[str, ...] = (),
+    fine_grained_token: bool = False,
+) -> PushedBranches:
     return PushedBranches(
         id=PUSHED_BRANCHES_ID,
         updated_at=PUSHED_BRANCHES_STAMP,
         url="https://github.com",
         branches=branches,
+        failed_repos=failed_repos,
+        fine_grained_token=fine_grained_token,
     )
 
 

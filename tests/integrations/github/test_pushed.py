@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
+from smorg.auth.store import Credentials
 from smorg.integrations.github.source.pushed import (
     MAX_BRANCHES,
     MAX_PAIRS,
@@ -325,6 +326,42 @@ def test_one_failing_repo_does_not_blank_the_others(tmp_path):
 
     assert result.unavailable is False
     assert [branch.branch for branch in result.branches] == ["kept"]
+    assert result.failed_repos == ("octocat/broken",)
+    assert result.fine_grained_token is True
+
+
+def test_failed_repos_are_reported_even_when_nothing_is_found(tmp_path):
+    fresh = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    nodes = [
+        {"nameWithOwner": "octocat/hello", "pushedAt": fresh},
+        {"nameWithOwner": "octocat/broken", "pushedAt": fresh},
+    ]
+    discovery = {
+        "data": {
+            "viewer": {
+                "login": "octocat",
+                "repositories": {"nodes": nodes},
+                "repositoriesContributedTo": {"nodes": []},
+            }
+        }
+    }
+    activity = {"octocat/hello": [], "octocat/broken": 403}
+    http = graphql_http(discovery=discovery, activity=activity)
+
+    result = query_pushed_branches(CREDENTIALS, http, _tmp_cache(tmp_path))
+
+    assert result.unavailable is False
+    assert result.branches == ()
+    assert result.failed_repos == ("octocat/broken",)
+
+
+def test_a_classic_token_does_not_claim_fine_grained(tmp_path):
+    classic = Credentials(access_token="ghp_secret", refresh_token=None, expires_at=None, scope="")
+    http = _pipeline_http([_activity_row("kept")], _qualification_payload(_qualified_repository()))
+
+    result = query_pushed_branches(classic, http, _tmp_cache(tmp_path))
+
+    assert result.fine_grained_token is False
 
 
 def test_every_repo_failing_degrades_to_unavailable(tmp_path):
