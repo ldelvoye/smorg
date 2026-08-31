@@ -17,6 +17,7 @@ from smorg.integrations.github.source.pushed import (
     _qualified_branches_of,
     query_pushed_branches,
 )
+from smorg.integrations.github.source.pushed.activity import PROBE_TIME_PERIOD
 from smorg.integrations.github.source.pushed.state import ActivityCache
 from smorg.integrations.github.source.pushed.tiers import RETIREMENT, RepoRecord
 
@@ -207,14 +208,16 @@ def test_two_branches_come_back_newest_push_first(tmp_path):
     assert [branch.branch for branch in result.branches] == ["new", "old"]
 
 
-def test_a_retired_repo_gets_no_activity_call(tmp_path):
+def test_a_retired_repo_gets_a_gentle_probe_not_a_hot_call(tmp_path):
     cache = _tmp_cache(tmp_path)
     old = datetime.now(UTC) - RETIREMENT - timedelta(days=1)
     cache.records["octocat/hello"] = RepoRecord(last_activity=old, last_probed=old)
+    seen_time_periods: list[str] = []
 
     def respond(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/activity"):
-            raise AssertionError("a retired repo must not be asked for activity")
+            seen_time_periods.append(request.url.params["time_period"])
+            return httpx.Response(200, json=[])
         if request.url.path.startswith("/users/"):
             return httpx.Response(200, json=[])
         payload = json.loads(request.content)
@@ -226,6 +229,7 @@ def test_a_retired_repo_gets_no_activity_call(tmp_path):
 
     assert result.unavailable is False
     assert result.branches == ()
+    assert seen_time_periods == [PROBE_TIME_PERIOD]
 
 
 def test_the_tripwire_promotes_a_retired_repo_back_to_hot(tmp_path):
@@ -254,7 +258,6 @@ def test_a_refresh_records_what_it_observed(tmp_path):
 
     record = cache.records["octocat/hello"]
     assert record.last_activity is not None
-    assert record.last_probed is not None
 
 
 def test_a_cached_hot_repo_missing_from_discovery_is_still_called(tmp_path):
@@ -269,7 +272,6 @@ def test_a_cached_hot_repo_missing_from_discovery_is_still_called(tmp_path):
     query_pushed_branches(CREDENTIALS, http, cache)
 
     record = cache.records["octocat/undiscovered"]
-    assert record.last_probed is not None
     assert record.last_probed > stale_probe
 
 

@@ -24,8 +24,15 @@ def _headers(credentials: Credentials) -> dict[str, str]:
 def _stamp_of(raw_event: object) -> tuple[str, datetime] | None:
     if not isinstance(raw_event, dict):
         return None
-    if raw_event.get("type") not in _PUSH_EVENT_TYPES:
+    event_type = raw_event.get("type")
+    if event_type not in _PUSH_EVENT_TYPES:
         return None
+    if event_type == "CreateEvent":
+        payload = raw_event.get("payload")
+        if not isinstance(payload, dict):
+            return None
+        if payload.get("ref_type") != "branch":
+            return None
     raw_created_at = raw_event.get("created_at")
     if not isinstance(raw_created_at, str):
         return None

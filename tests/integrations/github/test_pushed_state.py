@@ -36,7 +36,12 @@ def test_a_corrupt_or_missing_file_starts_an_empty_cache(tmp_path):
 def test_a_malformed_record_is_dropped_without_losing_the_rest(tmp_path):
     path = tmp_path / "github-activity.json"
     path.write_text(
-        '{"repos": {"octocat/bad": {"last_activity": 5, "last_probed": "nope"},'
+        '{"version": 1, "repos": {'
+        '"octocat/bad": {"last_activity": 5, "last_probed": "nope"},'
+        ' "octocat/bad-activity": {"last_activity": "not-a-date",'
+        ' "last_probed": "2026-08-28T12:00:00+00:00"},'
+        ' "octocat/naive-activity": {"last_activity": "2026-08-28T12:00:00",'
+        ' "last_probed": "2026-08-28T12:00:00+00:00"},'
         ' "octocat/good": {"last_activity": null, "last_probed": "2026-08-28T12:00:00+00:00"}},'
         ' "cursor": null}'
     )

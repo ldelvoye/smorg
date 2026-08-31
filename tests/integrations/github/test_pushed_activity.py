@@ -4,7 +4,11 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 
-from smorg.integrations.github.source.pushed.activity import HOT_TIME_PERIOD, activity_pairs
+from smorg.integrations.github.source.pushed.activity import (
+    HOT_TIME_PERIOD,
+    RepoActivity,
+    activity_lookup,
+)
 from smorg.integrations.github.source.pushed.qualification import WINDOW
 
 from .recorded import CREDENTIALS, graphql_http
@@ -22,9 +26,9 @@ def _row(
     return {"ref": ref, "timestamp": timestamp, "activity_type": activity_type}
 
 
-def _pairs(rows: object) -> list | None:
+def _lookup(rows: object) -> RepoActivity | None:
     http = graphql_http(activity={"octocat/hello": rows})
-    return activity_pairs(CREDENTIALS, http, "octocat/hello", "octocat", NOW, HOT_TIME_PERIOD)
+    return activity_lookup(CREDENTIALS, http, "octocat/hello", "octocat", NOW, HOT_TIME_PERIOD)
 
 
 def test_push_force_push_and_branch_creation_rows_become_pairs():
@@ -34,11 +38,11 @@ def test_push_force_push_and_branch_creation_rows_become_pairs():
         _row(ref="refs/heads/brand-new", activity_type="branch_creation"),
     ]
 
-    pairs = _pairs(rows)
+    result = _lookup(rows)
 
-    assert pairs is not None
-    assert [pair.branch for pair in pairs] == ["feature-branch", "rebased", "brand-new"]
-    assert all(pair.repository == "octocat/hello" for pair in pairs)
+    assert result is not None
+    assert [pair.branch for pair in result.pairs] == ["feature-branch", "rebased", "brand-new"]
+    assert all(pair.repository == "octocat/hello" for pair in result.pairs)
 
 
 def test_rows_failing_a_keep_filter_are_dropped():
@@ -50,15 +54,16 @@ def test_rows_failing_a_keep_filter_are_dropped():
         {"activity_type": "push"},
     ]
 
-    pairs = _pairs(rows)
+    result = _lookup(rows)
 
-    assert pairs == []
+    assert result is not None
+    assert result.pairs == []
 
 
 def test_a_failure_returns_none_rather_than_raising():
-    assert _pairs(b"not json") is None
-    assert _pairs(500) is None
-    assert _pairs({"not": "a list"}) is None
+    assert _lookup(b"not json") is None
+    assert _lookup(500) is None
+    assert _lookup({"not": "a list"}) is None
 
 
 def test_the_activity_request_pins_the_viewer_as_actor():
@@ -69,7 +74,20 @@ def test_the_activity_request_pins_the_viewer_as_actor():
         return httpx.Response(200, json=[])
 
     http = httpx.Client(transport=httpx.MockTransport(respond))
-    pairs = activity_pairs(CREDENTIALS, http, "octocat/hello", "octocat", NOW, HOT_TIME_PERIOD)
+    result = activity_lookup(CREDENTIALS, http, "octocat/hello", "octocat", NOW, HOT_TIME_PERIOD)
 
-    assert pairs == []
+    assert result is not None
+    assert result.pairs == []
     assert seen_params["actor"] == "octocat"
+
+
+def test_an_out_of_window_push_still_reports_its_timestamp():
+    """A 31-90 day old push must land the repo in the cold band, not "proven never active"."""
+    stamp = NOW - WINDOW - timedelta(days=15)
+    rows = [_row(timestamp=stamp.isoformat())]
+
+    result = _lookup(rows)
+
+    assert result is not None
+    assert result.pairs == []
+    assert result.newest == stamp

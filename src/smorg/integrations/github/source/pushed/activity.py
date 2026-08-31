@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 
 import httpx
@@ -17,6 +18,15 @@ PROBE_TIME_PERIOD = "quarter"
 _KEPT_ACTIVITY_TYPES = ("push", "force_push", "branch_creation")
 
 
+@dataclass(frozen=True)
+class RepoActivity:
+    """One repository's activity answer: pushes inside the window, and the newest push seen
+    at any age."""
+
+    pairs: list[PushPair]
+    newest: datetime | None
+
+
 def _headers(credentials: Credentials) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {credentials.access_token}",
@@ -24,7 +34,7 @@ def _headers(credentials: Credentials) -> dict[str, str]:
     }
 
 
-def _pair_of(raw_row: object, repo: str, now: datetime) -> PushPair | None:
+def _pair_of(raw_row: object, repo: str) -> PushPair | None:
     if not isinstance(raw_row, dict):
         return None
     if raw_row.get("activity_type") not in _KEPT_ACTIVITY_TYPES:
@@ -41,21 +51,21 @@ def _pair_of(raw_row: object, repo: str, now: datetime) -> PushPair | None:
         return None
     if pushed_at.tzinfo is None:
         return None
-    if now - pushed_at > WINDOW:
-        return None
     branch = ref.removeprefix("refs/heads/")
     return PushPair(repository=repo, branch=branch, pushed_at=pushed_at)
 
 
-def activity_pairs(
+def activity_lookup(
     credentials: Credentials,
     http: httpx.Client,
     repo: str,
     login: str,
     now: datetime,
     time_period: str,
-) -> list[PushPair] | None:
-    """The viewer's pushes to one repository inside the window; None on any failure."""
+) -> RepoActivity | None:
+    """The viewer's recent activity on one repository: pushes inside the window, and the
+    newest push seen at any age; None on any failure.
+    """
     url = ACTIVITY_URL.format(repo=repo)
     params = {"actor": login, "time_period": time_period, "per_page": ACTIVITY_PER_PAGE}
     try:
@@ -71,9 +81,13 @@ def activity_pairs(
     if not isinstance(payload, list):
         return None
     pairs: list[PushPair] = []
+    newest: datetime | None = None
     for raw_row in payload:
-        pair = _pair_of(raw_row, repo, now)
+        pair = _pair_of(raw_row, repo)
         if pair is None:
             continue
-        pairs.append(pair)
-    return pairs
+        if newest is None or pair.pushed_at > newest:
+            newest = pair.pushed_at
+        if now - pair.pushed_at <= WINDOW:
+            pairs.append(pair)
+    return RepoActivity(pairs=pairs, newest=newest)

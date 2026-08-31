@@ -7,8 +7,9 @@ from datetime import UTC, datetime
 import httpx
 
 from smorg.auth.store import Credentials
+from smorg.core.config import ConfigError
 from smorg.integrations.github.source.client import query_graphql
-from smorg.integrations.github.source.pushed.activity import activity_pairs
+from smorg.integrations.github.source.pushed.activity import activity_lookup
 from smorg.integrations.github.source.pushed.discovery import discover_repos
 from smorg.integrations.github.source.pushed.feed import pushed_repo_stamps
 from smorg.integrations.github.source.pushed.qualification import (
@@ -27,10 +28,10 @@ from smorg.integrations.github.source.pushed.qualification import (
 )
 from smorg.integrations.github.source.pushed.state import ActivityCache
 from smorg.integrations.github.source.pushed.tiers import (
-    RETIREMENT,
     RepoRecord,
     observed,
     plan_refresh,
+    should_promote,
 )
 
 __all__ = [
@@ -80,14 +81,9 @@ def query_pushed_branches(
     tripped = pushed_repo_stamps(credentials, http, login)
     for name, stamp in tripped.items():
         record = cache.records.get(name)
-        # Only unknown and retired repos get promoted: the feed lags hours behind the
-        # activity endpoint, so a hot or cold repo's own calls are fresher.
-        if record is not None and record.last_probed is not None:
-            if record.last_activity is not None and now - record.last_activity <= RETIREMENT:
-                continue
-        cache.records[name] = RepoRecord(last_activity=stamp, last_probed=stamp)
-        if name not in names:
-            names.append(name)
+        if not should_promote(record, now):
+            continue
+        cache.records[name] = RepoRecord(last_activity=stamp, last_probed=now)
     for name in cache.records:
         if name not in names:
             names.append(name)
@@ -95,18 +91,17 @@ def query_pushed_branches(
     found: list[PushPair] = []
     failures = 0
     for name, time_period in plan.calls:
-        repo_pairs = activity_pairs(credentials, http, name, login, now, time_period)
-        if repo_pairs is None:
+        lookup = activity_lookup(credentials, http, name, login, now, time_period)
+        if lookup is None:
             failures += 1
             continue
-        if repo_pairs:
-            newest_pair = max(pair.pushed_at for pair in repo_pairs)
-        else:
-            newest_pair = None
-        cache.records[name] = observed(cache.records.get(name), newest_pair, now)
-        found.extend(repo_pairs)
+        cache.records[name] = observed(cache.records.get(name), lookup.newest, now)
+        found.extend(lookup.pairs)
     cache.cursor = plan.cursor
-    cache.save()
+    try:
+        cache.save()
+    except (ConfigError, OSError):
+        pass
     if plan.calls and failures == len(plan.calls):
         return _unavailable_pushed_branches()
     pairs = _newest_pairs(found)

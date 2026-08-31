@@ -1,5 +1,5 @@
 """Which repositories get an activity call on a refresh: hot every time, cold in rotation,
-retired never."""
+retired one slow probe at a time."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ class RepoRecord:
     when it was last asked."""
 
     last_activity: datetime | None
-    last_probed: datetime | None
+    last_probed: datetime
 
 
 @dataclass(frozen=True)
@@ -43,28 +43,42 @@ def _probe_rotation(cold: list[str], cursor: str | None) -> list[str]:
     return rotated[:count]
 
 
+def _oldest_retired(retired: list[tuple[str, RepoRecord]]) -> str | None:
+    if not retired:
+        return None
+    ordered = sorted(retired, key=lambda entry: entry[1].last_probed)
+    oldest_name, _ = ordered[0]
+    return oldest_name
+
+
 def plan_refresh(
     candidates: list[str],
     records: dict[str, RepoRecord],
     cursor: str | None,
     now: datetime,
 ) -> RefreshPlan:
-    """One refresh's activity calls: every hot repo, plus a fifth of the cold band."""
+    """One refresh's activity calls: every hot repo, a fifth of the cold band, and the single
+    longest-unprobed retired repo.
+    """
     hot: list[str] = []
     cold: list[str] = []
     unknown: list[str] = []
+    retired: list[tuple[str, RepoRecord]] = []
     for name in candidates:
         record = records.get(name)
-        if record is None or record.last_probed is None:
+        if record is None:
             unknown.append(name)
             continue
         if record.last_activity is None:
+            retired.append((name, record))
             continue
         age = now - record.last_activity
         if age <= WINDOW:
             hot.append(name)
         elif age <= RETIREMENT:
             cold.append(name)
+        else:
+            retired.append((name, record))
     probes = _probe_rotation(cold, cursor)
     calls: list[tuple[str, str]] = []
     for name in hot:
@@ -73,11 +87,25 @@ def plan_refresh(
         calls.append((name, PROBE_TIME_PERIOD))
     for name in probes:
         calls.append((name, PROBE_TIME_PERIOD))
+    oldest_retired = _oldest_retired(retired)
+    if oldest_retired is not None:
+        calls.append((oldest_retired, PROBE_TIME_PERIOD))
     if probes:
         next_cursor = probes[-1]
     else:
         next_cursor = cursor
     return RefreshPlan(calls=tuple(calls), cursor=next_cursor)
+
+
+def should_promote(record: RepoRecord | None, now: datetime) -> bool:
+    """Whether a feed sighting should wake this repository: unknown, proven never active, or
+    retired."""
+    if record is None:
+        return True
+    if record.last_activity is None:
+        return True
+    age = now - record.last_activity
+    return age > RETIREMENT
 
 
 def observed(record: RepoRecord | None, pairs_newest: datetime | None, now: datetime) -> RepoRecord:

@@ -14,6 +14,7 @@ from pathlib import Path
 from smorg.core.config import config_dir, ensure_config_dir, write_private_file
 from smorg.integrations.github.source.pushed.tiers import RepoRecord
 
+_SCHEMA_VERSION = 1
 _LOCK = threading.Lock()
 
 
@@ -25,9 +26,12 @@ def _stamp_of(raw: object) -> datetime | None:
     if not isinstance(raw, str):
         return None
     try:
-        return datetime.fromisoformat(raw)
+        stamp = datetime.fromisoformat(raw)
     except ValueError:
         return None
+    if stamp.tzinfo is None:
+        return None
+    return stamp
 
 
 def _record_of(raw: object) -> RepoRecord | None:
@@ -69,6 +73,8 @@ class ActivityCache:
                 return cls({}, None, path)
         if not isinstance(raw, dict):
             return cls({}, None, path)
+        if raw.get("version") != _SCHEMA_VERSION:
+            return cls({}, None, path)
         records: dict[str, RepoRecord] = {}
         raw_repos = raw.get("repos")
         if isinstance(raw_repos, dict):
@@ -90,7 +96,7 @@ class ActivityCache:
                 "last_activity": _stamp_text(record.last_activity),
                 "last_probed": _stamp_text(record.last_probed),
             }
-        payload = json.dumps({"repos": repos, "cursor": self.cursor})
+        payload = json.dumps({"version": _SCHEMA_VERSION, "repos": repos, "cursor": self.cursor})
         with _LOCK:
             if self._path == cache_path():
                 ensure_config_dir()

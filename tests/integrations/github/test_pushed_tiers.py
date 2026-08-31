@@ -14,12 +14,13 @@ from smorg.integrations.github.source.pushed.tiers import (
 NOW = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
 
 
-def _record(active_days_ago: int | None) -> RepoRecord:
+def _record(active_days_ago: int | None, probed_days_ago: int = 1) -> RepoRecord:
     if active_days_ago is None:
         last_activity = None
     else:
         last_activity = NOW - timedelta(days=active_days_ago)
-    return RepoRecord(last_activity=last_activity, last_probed=NOW - timedelta(days=1))
+    last_probed = NOW - timedelta(days=probed_days_ago)
+    return RepoRecord(last_activity=last_activity, last_probed=last_probed)
 
 
 def test_tier_boundaries_pick_each_repo_treatment():
@@ -28,7 +29,7 @@ def test_tier_boundaries_pick_each_repo_treatment():
     records = {
         "octocat/hot-edge": _record(WINDOW.days),
         "octocat/cold": _record(WINDOW.days + 1),
-        "octocat/retired": _record(RETIREMENT.days + 1),
+        "octocat/retired": _record(RETIREMENT.days + 1, probed_days_ago=2),
         "octocat/proven-never": _record(None),
     }
     candidates = list(records) + ["octocat/unknown"]
@@ -39,8 +40,27 @@ def test_tier_boundaries_pick_each_repo_treatment():
     assert calls["octocat/hot-edge"] == HOT_TIME_PERIOD
     assert calls["octocat/cold"] == PROBE_TIME_PERIOD
     assert calls["octocat/unknown"] == PROBE_TIME_PERIOD
-    assert "octocat/retired" not in calls
+    assert calls["octocat/retired"] == PROBE_TIME_PERIOD
     assert "octocat/proven-never" not in calls
+
+
+def test_the_oldest_retired_repo_gets_one_probe_per_refresh():
+    """Retirement is recoverable without the feed: the band rotates at one probe per refresh."""
+    records = {
+        "octocat/hot": _record(0),
+        "octocat/retired-a": _record(RETIREMENT.days + 1, probed_days_ago=3),
+        "octocat/retired-b": _record(RETIREMENT.days + 1, probed_days_ago=5),
+        "octocat/proven-never": _record(None, probed_days_ago=10),
+    }
+
+    plan = plan_refresh(list(records), records, None, NOW)
+
+    calls = dict(plan.calls)
+    assert calls["octocat/hot"] == HOT_TIME_PERIOD
+    assert calls["octocat/proven-never"] == PROBE_TIME_PERIOD
+    assert "octocat/retired-a" not in calls
+    assert "octocat/retired-b" not in calls
+    assert len(calls) == 2
 
 
 def test_cold_probes_take_a_fifth_rounded_up():
