@@ -17,6 +17,8 @@
 
 - Add gh login auth method
 
+- Overload refresh widget with a state breakdown refresh widget
+- On load, show what we're currently refreshing
 - View diffs from `pushed branches`
 - Enable creating PRs from `pushed branches` (need write access)
 - Enable reviewing PRs (need write access)
