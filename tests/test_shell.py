@@ -193,12 +193,11 @@ async def test_only_the_visible_tab_fetches_on_startup(monkeypatch):
 @pytest.mark.asyncio
 async def test_r_forces_a_refresh_of_the_active_tab(monkeypatch):
     fetched: list[tuple[str, bool]] = []
-    monkeypatch.setattr(
-        "smorg.shell.app.SmorgApp.refresh_tab",
-        lambda self, integration_id, panel, force=False, on_stage=None: fetched.append(
-            (integration_id, force)
-        ),
-    )
+
+    def record_refresh(self, integration_id, panel, force=False, on_stage=None, on_phase=None):
+        fetched.append((integration_id, force))
+
+    monkeypatch.setattr("smorg.shell.app.SmorgApp.refresh_tab", record_refresh)
     async with SmorgApp(tabs=(TabConfig("alpha"),)).run_test() as pilot:
         fetched.clear()
         await pilot.press("r")
@@ -586,12 +585,11 @@ async def test_question_mark_again_also_closes_the_overlay():
 @pytest.mark.asyncio
 async def test_shell_keys_still_work_after_the_overlay_closes(monkeypatch):
     fetched: list[tuple[str, bool]] = []
-    monkeypatch.setattr(
-        "smorg.shell.app.SmorgApp.refresh_tab",
-        lambda self, integration_id, panel, force=False, on_stage=None: fetched.append(
-            (integration_id, force)
-        ),
-    )
+
+    def record_refresh(self, integration_id, panel, force=False, on_stage=None, on_phase=None):
+        fetched.append((integration_id, force))
+
+    monkeypatch.setattr("smorg.shell.app.SmorgApp.refresh_tab", record_refresh)
     app = SmorgApp(tabs=(TabConfig("alpha"), TabConfig("linear")))
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1095,20 +1093,98 @@ async def test_tab_switch_refreshes_never_show_the_indicator(monkeypatch):
         await pilot.press("l")
         await pilot.app.workers.wait_for_complete()
         await pilot.pause()
-        indicator = app.query_one(RefreshIndicator)
-        showing = indicator.display
+        mounted = list(app.query(RefreshIndicator))
 
-    assert showing is False
+    assert mounted == []
 
 
 @pytest.mark.asyncio
 async def test_the_done_stage_hides_itself_after_its_linger():
     app = SmorgApp(tabs=(TabConfig("alpha"),))
     async with app.run_test() as pilot:
-        indicator = app.query_one(RefreshIndicator)
+        indicator = RefreshIndicator()
+        await app.mount(indicator)
         indicator.show_stage(RefreshStage.DONE)
         await pilot.pause()
         assert indicator.display is True
 
         await pilot.pause(DONE_LINGER_SECONDS + 0.2)
         assert indicator.display is False
+
+
+class _PhasesIntegration:
+    def __init__(self) -> None:
+        self.manifest = _fake_manifest()
+        self.panel_class = Panel
+        self.fetch_phases = ("alpha", "beta", "gamma")
+
+    def fetch_with_progress(self, credentials, http, report):
+        for index in range(len(self.fetch_phases)):
+            report(index)
+        return (item(),)
+
+
+@pytest.mark.asyncio
+async def test_r_with_declared_phases_reports_each_one_in_order(monkeypatch):
+    _stub_credentials(monkeypatch)
+    monkeypatch.setattr(
+        "smorg.shell.app.get_integration", lambda integration_id: _PhasesIntegration()
+    )
+    phase_calls: list[int] = []
+    original_show_phase = RefreshIndicator.show_phase
+
+    def recording_show_phase(self, index):
+        phase_calls.append(index)
+        original_show_phase(self, index)
+
+    monkeypatch.setattr(RefreshIndicator, "show_phase", recording_show_phase)
+
+    panel_labels: list[str] = []
+    original_show_fetch_phase = Panel.show_fetch_phase
+
+    def recording_show_fetch_phase(self, label):
+        panel_labels.append(label)
+        original_show_fetch_phase(self, label)
+
+    monkeypatch.setattr(Panel, "show_fetch_phase", recording_show_fetch_phase)
+
+    app = SmorgApp(tabs=(TabConfig("linear"),))
+    async with app.run_test() as pilot:
+        await pilot.app.workers.wait_for_complete()
+        phase_calls.clear()
+        panel_labels.clear()
+        await pilot.press("r")
+        await pilot.app.workers.wait_for_complete()
+        await pilot.pause()
+
+    assert phase_calls == [0, 1, 2]
+    assert panel_labels == ["alpha", "beta", "gamma"]
+
+
+class _IndicatorHarness(App[None]):
+    def compose(self) -> ComposeResult:
+        yield RefreshIndicator(("a", "b", "c"))
+        yield RefreshIndicator()
+
+
+@pytest.mark.asyncio
+async def test_format_progress_renders_the_stage_and_phase_breakdown():
+    async with _IndicatorHarness().run_test() as pilot:
+        indicators = list(pilot.app.query(RefreshIndicator))
+        with_phases, without_phases = indicators
+
+        with_phases.show_stage(RefreshStage.CONNECTING)
+        await pilot.pause()
+        assert with_phases.render_line(0).text == "▰▱▱▱▱ connecting…"
+
+        with_phases.show_phase(1)
+        await pilot.pause()
+        assert with_phases.render_line(0).text == "▰▰▰▱▱ fetching b…"
+
+        with_phases.show_stage(RefreshStage.DONE)
+        await pilot.pause()
+        assert with_phases.render_line(0).text == "▰▰▰▰▰ refreshed"
+
+        without_phases.show_stage(RefreshStage.CONNECTING)
+        await pilot.pause()
+        assert without_phases.render_line(0).text == "▰▱▱ connecting…"

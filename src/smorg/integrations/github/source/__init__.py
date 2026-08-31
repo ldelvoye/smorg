@@ -20,7 +20,7 @@ from smorg.integrations.github.source.diff import (
     diff_request_of,
     fetch_diff,
 )
-from smorg.integrations.github.source.fetch import fetch
+from smorg.integrations.github.source.fetch import FETCH_PHASES, fetch, fetch_with_progress
 from smorg.integrations.github.source.profile import (
     ABSENT_DAY,
     DAYS_PER_WEEK,
@@ -40,6 +40,7 @@ __all__ = [
     "ABSENT_COUNT",
     "ABSENT_DAY",
     "DAYS_PER_WEEK",
+    "FETCH_PHASES",
     "PROFILE_ID",
     "PUSHED_BRANCHES_ID",
     "UNAVAILABLE_CHECKS",
@@ -62,5 +63,6 @@ __all__ = [
     "fetch",
     "fetch_detail",
     "fetch_diff",
+    "fetch_with_progress",
     "query_pushed_branches",
 ]

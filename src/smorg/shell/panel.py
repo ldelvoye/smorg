@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from datetime import datetime
 from enum import StrEnum
+from typing import ClassVar
 
 from rich.console import RenderableType
 from rich.text import Text
@@ -17,13 +18,13 @@ from textual import events
 from textual.app import ComposeResult, RenderResult
 from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
-from textual.types import NoActiveAppError
 from textual.widgets import Static
 
 from smorg.core.config import ConfigError
 from smorg.core.contract import Item
 from smorg.core.state import SeenState
-from smorg.shell.terminal_palette import StatusColors, TerminalPalette, status_colors
+from smorg.shell.refresh_indicator import RefreshIndicator
+from smorg.shell.terminal_palette import StatusColors, status_colors, widget_background
 
 
 class PanelState(StrEnum):
@@ -101,6 +102,8 @@ class Panel(Vertical):
     Panel > #body { height: 1fr; }
     """
 
+    refresh_indicator_class: ClassVar[type[RefreshIndicator]] = RefreshIndicator
+
     def __init__(self) -> None:
         super().__init__()
         self.state = PanelState.LOADING
@@ -133,14 +136,11 @@ class Panel(Vertical):
         """
         return "\n".join(item.id for item in self.items)
 
+    def show_fetch_phase(self, label: str) -> None:
+        """A fetch phase began; overridden by a panel that shows progress. The base shows none."""
+
     def _terminal_background(self) -> tuple[int, int, int] | None:
-        try:
-            palette = getattr(self.app, "palette", None)
-        except NoActiveAppError:
-            return None
-        if isinstance(palette, TerminalPalette):
-            return palette.background
-        return None
+        return widget_background(self)
 
     def status_colors(self) -> StatusColors:
         """Semantic red/yellow/green picked to sit on this terminal's background."""

@@ -54,6 +54,23 @@ def test_the_bar_bounces_between_the_track_ends():
     assert min(positions) == 0
 
 
+async def test_show_fetch_phase_updates_the_caption_only_while_loading():
+    panel = GitHubPanel()
+    panel.integration_id = "github"
+    async with PanelHarness(panel).run_test() as pilot:
+        panel.show_fetch_phase("pull requests")
+        await pilot.pause()
+        assert panel._loading().reason == "fetching pull requests"
+
+        panel.state = PanelState.READY
+        panel.items = (profile_item(),)
+        panel.refresh()
+        await pilot.pause()
+        panel.show_fetch_phase("profile")
+        await pilot.pause()
+        assert panel._loading().reason == "fetching pull requests"
+
+
 def test_the_widget_says_what_it_loads():
     loading = GitHubLoading("loading the pull request")
 
