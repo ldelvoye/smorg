@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from smorg.integrations.github.panel import GitHubPanel
 
 _BACK_HINT = "‹ esc — menu"
-_FEED_NOTICE = "github's event feed has been unstable; small-repo pushes can be slow to appear"
 _UNAVAILABLE_TEXT = "pushed branches unavailable with this token"
 _EMPTY_TEXT = "nothing recently pushed"
 _CARD_TITLE_STYLE = "bold not dim"
@@ -94,11 +93,9 @@ class GitHubPushedBranches(Vertical):
         return self._selected_in(self._branches())
 
     def render_view(self) -> RenderableType:
-        """The whole ready view: the back hint and feed notice above the card."""
+        """The whole ready view: the back hint above the card."""
         parts = [
             Text(_BACK_HINT, style="dim"),
-            Text(),
-            Text(_FEED_NOTICE, style="dim"),
             Text(),
             self.render_content(),
         ]

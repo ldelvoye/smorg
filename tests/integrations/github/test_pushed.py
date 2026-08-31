@@ -2,6 +2,7 @@
 GraphQL, and the pipeline's degradation into unavailable or partial results.
 """
 
+import json
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -16,10 +17,17 @@ from smorg.integrations.github.source.pushed import (
     _qualified_branches_of,
     query_pushed_branches,
 )
+from smorg.integrations.github.source.pushed.activity import PROBE_TIME_PERIOD
+from smorg.integrations.github.source.pushed.state import ActivityCache
+from smorg.integrations.github.source.pushed.tiers import RETIREMENT, RepoRecord
 
 from .recorded import CREDENTIALS, graphql_http
 
 NOW = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
+
+
+def _tmp_cache(tmp_path) -> ActivityCache:
+    return ActivityCache.load(tmp_path / "github-activity.json")
 
 
 def _pair(
@@ -177,11 +185,11 @@ def test_qualification_asks_only_about_open_and_merged_pull_requests():
 # --- Escaping ---
 
 
-def test_a_hostile_branch_name_round_trips_through_the_transport():
+def test_a_hostile_branch_name_round_trips_through_the_transport(tmp_path):
     rows = [_activity_row('fix/"weird"\\branch')]
     http = _pipeline_http(rows, _qualification_payload(_qualified_repository()))
 
-    result = query_pushed_branches(CREDENTIALS, http)
+    result = query_pushed_branches(CREDENTIALS, http, _tmp_cache(tmp_path))
 
     assert result.unavailable is False
     assert [branch.branch for branch in result.branches] == ['fix/"weird"\\branch']
@@ -190,14 +198,81 @@ def test_a_hostile_branch_name_round_trips_through_the_transport():
 # --- Ordering ---
 
 
-def test_two_branches_come_back_newest_push_first():
+def test_two_branches_come_back_newest_push_first(tmp_path):
     rows = [_activity_row("old", days_ago=5), _activity_row("new", days_ago=1)]
     qualification = _qualification_payload(_qualified_repository(), _qualified_repository())
     http = _pipeline_http(rows, qualification)
 
-    result = query_pushed_branches(CREDENTIALS, http)
+    result = query_pushed_branches(CREDENTIALS, http, _tmp_cache(tmp_path))
 
     assert [branch.branch for branch in result.branches] == ["new", "old"]
+
+
+def test_a_retired_repo_gets_a_gentle_probe_not_a_hot_call(tmp_path):
+    cache = _tmp_cache(tmp_path)
+    old = datetime.now(UTC) - RETIREMENT - timedelta(days=1)
+    cache.records["octocat/hello"] = RepoRecord(last_activity=old, last_probed=old)
+    seen_time_periods: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/activity"):
+            seen_time_periods.append(request.url.params["time_period"])
+            return httpx.Response(200, json=[])
+        if request.url.path.startswith("/users/"):
+            return httpx.Response(200, json=[])
+        payload = json.loads(request.content)
+        assert "repositoriesContributedTo" in payload["query"]
+        return httpx.Response(200, json=_single_repo_discovery())
+
+    http = httpx.Client(transport=httpx.MockTransport(respond))
+    result = query_pushed_branches(CREDENTIALS, http, cache)
+
+    assert result.unavailable is False
+    assert result.branches == ()
+    assert seen_time_periods == [PROBE_TIME_PERIOD]
+
+
+def test_the_tripwire_promotes_a_retired_repo_back_to_hot(tmp_path):
+    cache = _tmp_cache(tmp_path)
+    old = datetime.now(UTC) - RETIREMENT - timedelta(days=1)
+    cache.records["octocat/hello"] = RepoRecord(last_activity=old, last_probed=old)
+    feed_stamp = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
+    events = [{"type": "PushEvent", "created_at": feed_stamp, "repo": {"name": "octocat/hello"}}]
+    http = graphql_http(
+        discovery=_single_repo_discovery(),
+        events=events,
+        activity={"octocat/hello": [_activity_row("revived")]},
+        pushed=_qualification_payload(_qualified_repository()),
+    )
+
+    result = query_pushed_branches(CREDENTIALS, http, cache)
+
+    assert [branch.branch for branch in result.branches] == ["revived"]
+
+
+def test_a_refresh_records_what_it_observed(tmp_path):
+    cache = _tmp_cache(tmp_path)
+    http = _pipeline_http([_activity_row("kept")], _qualification_payload(_qualified_repository()))
+
+    query_pushed_branches(CREDENTIALS, http, cache)
+
+    record = cache.records["octocat/hello"]
+    assert record.last_activity is not None
+
+
+def test_a_cached_hot_repo_missing_from_discovery_is_still_called(tmp_path):
+    """The tripwire promotes a repo once; the cache must keep it in the plan afterwards."""
+    cache = _tmp_cache(tmp_path)
+    stale_probe = datetime.now(UTC) - timedelta(days=1)
+    cache.records["octocat/undiscovered"] = RepoRecord(
+        last_activity=stale_probe, last_probed=stale_probe
+    )
+    http = _pipeline_http([_activity_row("kept")], _qualification_payload(_qualified_repository()))
+
+    query_pushed_branches(CREDENTIALS, http, cache)
+
+    record = cache.records["octocat/undiscovered"]
+    assert record.last_probed > stale_probe
 
 
 # --- Degradation: transport, HTTP, and shape failures never raise ---
@@ -220,14 +295,14 @@ def _failing_http() -> httpx.Client:
         lambda: _pipeline_http([_activity_row("kept")], pushed={"data": {}}, pushed_status=403),
     ],
 )
-def test_a_shape_or_transport_surprise_degrades_to_unavailable(http_factory):
-    result = query_pushed_branches(CREDENTIALS, http_factory())
+def test_a_shape_or_transport_surprise_degrades_to_unavailable(http_factory, tmp_path):
+    result = query_pushed_branches(CREDENTIALS, http_factory(), _tmp_cache(tmp_path))
 
     assert result.unavailable is True
     assert result.branches == ()
 
 
-def test_one_failing_repo_does_not_blank_the_others():
+def test_one_failing_repo_does_not_blank_the_others(tmp_path):
     fresh = (datetime.now(UTC) - timedelta(days=1)).isoformat()
     nodes = [
         {"nameWithOwner": "octocat/hello", "pushedAt": fresh},
@@ -246,13 +321,13 @@ def test_one_failing_repo_does_not_blank_the_others():
     pushed = _qualification_payload(_qualified_repository())
     http = graphql_http(discovery=discovery, activity=activity, pushed=pushed)
 
-    result = query_pushed_branches(CREDENTIALS, http)
+    result = query_pushed_branches(CREDENTIALS, http, _tmp_cache(tmp_path))
 
     assert result.unavailable is False
     assert [branch.branch for branch in result.branches] == ["kept"]
 
 
-def test_every_repo_failing_degrades_to_unavailable():
+def test_every_repo_failing_degrades_to_unavailable(tmp_path):
     fresh = (datetime.now(UTC) - timedelta(days=1)).isoformat()
     nodes = [
         {"nameWithOwner": "octocat/hello", "pushedAt": fresh},
@@ -267,9 +342,10 @@ def test_every_repo_failing_degrades_to_unavailable():
             }
         }
     }
-    http = graphql_http(discovery=discovery, activity={"octocat/hello": 403, "octocat/broken": 403})
+    activity: dict[str, object] = {"octocat/hello": 403, "octocat/broken": 403}
+    http = graphql_http(discovery=discovery, activity=activity)
 
-    result = query_pushed_branches(CREDENTIALS, http)
+    result = query_pushed_branches(CREDENTIALS, http, _tmp_cache(tmp_path))
 
     assert result.unavailable is True
     assert result.branches == ()
@@ -277,6 +353,8 @@ def test_every_repo_failing_degrades_to_unavailable():
 
 def _http_forbidding_graphql() -> httpx.Client:
     def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/users/"):
+            return httpx.Response(200, json=[])
         if request.url.path.startswith("/repos/") and request.url.path.endswith("/activity"):
             return httpx.Response(200, json=[])
         if b"repositoriesContributedTo" in request.content:
@@ -286,8 +364,10 @@ def _http_forbidding_graphql() -> httpx.Client:
     return httpx.Client(transport=httpx.MockTransport(respond))
 
 
-def test_zero_pairs_returns_an_available_empty_container_without_a_graphql_call():
-    result = query_pushed_branches(CREDENTIALS, _http_forbidding_graphql())
+def test_zero_pairs_returns_an_available_empty_container_without_a_graphql_call(tmp_path):
+    http = _http_forbidding_graphql()
+
+    result = query_pushed_branches(CREDENTIALS, http, _tmp_cache(tmp_path))
 
     assert result.unavailable is False
     assert result.branches == ()
