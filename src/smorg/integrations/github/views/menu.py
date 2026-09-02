@@ -16,7 +16,8 @@ from textual.binding import Binding
 from textual.widgets import Static
 
 from smorg.integrations.github.source import ABSENT_DAY, DAYS_PER_WEEK, ContributionWeek
-from smorg.integrations.github.views import CHANGED_MARK, SELECTED_MARK, GitHubView
+from smorg.integrations.github.views import GitHubView
+from smorg.shell.cards import CHANGED_MARK, SELECTED_MARK
 from smorg.shell.panel import PanelState
 from smorg.shell.terminal_palette import StatusColors
 

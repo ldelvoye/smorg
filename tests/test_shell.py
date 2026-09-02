@@ -50,6 +50,7 @@ def issue(identifier: str = "ENG-1") -> Issue:
         status_type="started",
         team="Infra",
         priority="High",
+        project="",
     )
 
 

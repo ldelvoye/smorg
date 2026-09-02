@@ -1,6 +1,6 @@
 import io
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -13,12 +13,23 @@ from textual.widgets import Static
 
 from smorg.core.contract import Newest
 from smorg.core.state import SeenState
-from smorg.integrations.linear.panel import LinearPanel
+from smorg.integrations.linear.palette import accent_for_background
+from smorg.integrations.linear.panel import (
+    LinearPanel,
+    _format_marks,
+    _format_priority,
+    _format_row_meta,
+    _status_color,
+    _status_disc,
+)
 from smorg.integrations.linear.source import Comment, Issue, IssueDetail
+from smorg.shell.cards import CHANGED_MARK
 from smorg.shell.markdown import is_local_path
 from smorg.shell.panel import PanelState
+from smorg.shell.terminal_palette import StatusColors
 
 NOW = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
+COLORS = StatusColors(red="#f85149", yellow="#d29922", green="#3fb950")
 
 
 def issue(identifier: str = "ENG-1", status: str = "In Review") -> Issue:
@@ -31,6 +42,7 @@ def issue(identifier: str = "ENG-1", status: str = "In Review") -> Issue:
         status_type="started",
         team="Infra",
         priority="High",
+        project="",
     )
 
 
@@ -63,8 +75,8 @@ def test_a_changed_issue_is_marked_and_a_seen_one_is_not():
     text = panel_with(issue("ENG-1"), unchanged, seen=seen).body_text()
     marked = [line for line in text.splitlines() if "●" in line]
 
-    assert any("ENG-1" in line for line in marked)
-    assert not any("ENG-2" in line for line in marked)
+    assert any("title of ENG-1" in line for line in marked)
+    assert not any("title of ENG-2" in line for line in marked)
 
 
 def test_the_open_action_returns_the_url_of_the_selected_issue():
@@ -81,39 +93,7 @@ def test_the_panel_never_fetches():
     assert "fetch" not in source
 
 
-# --- Owner-decision extensions: priority glyph, selection cursor, safe styling ---
-
-
-@pytest.mark.parametrize(
-    ("priority", "glyph"),
-    [
-        ("Urgent", "!!!"),
-        ("High", "!!"),
-        ("Medium", "!"),
-        ("Low", "·"),
-    ],
-)
-def test_priority_glyph_scale(priority: str, glyph: str) -> None:
-    panel = panel_with(replace(issue("ENG-1"), priority=priority))
-    text = panel.body_text()
-    assert glyph.ljust(3) in text
-
-
-def test_priority_glyphs_are_padded_to_a_common_width_so_titles_align():
-    urgent_text = panel_with(replace(issue("ENG-1"), priority="Urgent")).body_text()
-    low_text = panel_with(replace(issue("ENG-2"), priority="Low")).body_text()
-    urgent_line = next(line for line in urgent_text.splitlines() if "ENG-1" in line)
-    low_line = next(line for line in low_text.splitlines() if "ENG-2" in line)
-
-    # "!!!" and "·" differ in width; the title must still start at the same
-    # column in both rows.
-    assert urgent_line.index("title of ENG-1") == low_line.index("title of ENG-2")
-
-
-def test_ids_are_padded_to_a_common_width_so_titles_align():
-    text = panel_with(issue("CTRL-3", "In Progress"), issue("INFRENG-415", "Todo")).body_text()
-    starts = {line.index("title of") for line in text.splitlines() if "title of" in line}
-    assert len(starts) == 1
+# --- Owner-decision extensions: status discs, priority bars, safe styling ---
 
 
 def _style_at(rendered: Text, substring: str) -> str | Style | None:
@@ -126,117 +106,126 @@ def _style_at(rendered: Text, substring: str) -> str | Style | None:
     return None
 
 
-def test_the_in_progress_header_is_bold_yellow():
-    rendered = panel_with(issue("ENG-1", "In Progress")).render_ready()
-    assert _style_at(rendered, "In Progress") == "bold #d29922"
-
-
-def test_an_unknown_started_status_falls_back_to_bold_yellow():
-    rendered = panel_with(issue("ENG-1", "Doing The Work")).render_ready()
-    assert _style_at(rendered, "Doing The Work") == "bold #d29922"
-
-
-def test_an_unknown_unstarted_status_falls_back_to_bold():
-    unstarted = replace(issue("ENG-1", "Someday"), status_type="unstarted")
-    rendered = panel_with(unstarted).render_ready()
-    assert _style_at(rendered, "Someday") == "bold"
-
-
 @pytest.mark.parametrize(
-    ("status", "style"),
+    ("status", "status_type", "disc", "color"),
     [
-        ("Blocked", "bold #f85149"),
-        ("In Review", "bold #3fb950"),
+        ("In Progress", "started", "◐", COLORS.yellow),
+        ("in progress", "started", "◐", COLORS.yellow),
+        ("In Review", "started", "◕", COLORS.green),
+        ("Todo", "unstarted", "○", "dim"),
+        ("Blocked", "started", "⊘", COLORS.red),
+        ("Doing The Work", "started", "◐", COLORS.yellow),
+        ("Someday", "unstarted", "○", "dim"),
     ],
 )
-def test_known_status_labels_get_their_mapped_style(status: str, style: str) -> None:
-    rendered = panel_with(issue("ENG-1", status)).render_ready()
-    assert _style_at(rendered, status) == style
+def test_status_disc_and_color_mapping(
+    status: str, status_type: str, disc: str, color: str
+) -> None:
+    assert _status_disc(status, status_type) == disc
+    assert _status_color(status, status_type, COLORS) == color
 
 
-def test_status_style_lookup_is_case_insensitive():
-    rendered = panel_with(issue("ENG-1", "IN PROGRESS")).render_ready()
-    assert _style_at(rendered, "IN PROGRESS") == "bold #d29922"
+def test_priority_bars_fill_to_the_level_in_the_stage_color_with_own_glyphs_for_urgent_and_none():
+    urgent = _format_priority("Urgent", COLORS, COLORS.red)
+    assert urgent.plain == "[!]"
+    assert urgent.style == f"bold {COLORS.red}"
+
+    high = _format_priority("High", COLORS, COLORS.yellow)
+    assert high.plain == "▂▄▆"
+    assert high.style == COLORS.yellow
+
+    medium = _format_priority("Medium", COLORS, COLORS.green)
+    assert medium.plain == "▂▄▆"
+    assert medium.style == COLORS.green
+    assert _style_at(medium, "▆") == "dim"
+
+    low = _format_priority("Low", COLORS, COLORS.yellow)
+    assert low.plain == "▂▄▆"
+    assert low.style == COLORS.yellow
+    assert _style_at(low, "▄▆") == "dim"
+
+    dim_stage = _format_priority("High", COLORS, "dim")
+    assert dim_stage.style == ""
+
+    none = _format_priority("", COLORS, COLORS.yellow)
+    assert none.plain == "---"
+    assert none.style == "dim"
 
 
-def test_the_urgent_glyph_is_bold_red():
-    # The tested priority sits on the second (unselected) issue: the cursor's
-    # own row carries a "bold" base style of its own, which would otherwise
-    # mask the glyph's specific color in _style_at's first-match lookup.
-    rendered = panel_with(
-        replace(issue("ENG-1"), priority="Low"), replace(issue("ENG-2"), priority="Urgent")
-    ).render_ready()
-    assert _style_at(rendered, "!!!") == "bold #f85149"
+def test_the_changed_mark_uses_the_indigo_accent_not_green():
+    marks = _format_marks(False, True, accent_for_background(None))
+    style = _style_at(marks, CHANGED_MARK)
+    assert style == accent_for_background(None)
+    assert style != COLORS.green
 
 
-def test_the_high_glyph_is_yellow():
-    rendered = panel_with(
-        replace(issue("ENG-1"), priority="Low"), replace(issue("ENG-2"), priority="High")
-    ).render_ready()
-    assert _style_at(rendered, "!!") == "#d29922"
+def test_the_row_meta_carries_project_and_age_and_omits_an_empty_project(monkeypatch):
+    monkeypatch.setattr("smorg.shell.format.now", lambda: NOW + timedelta(hours=3))
+
+    with_project = replace(issue("ENG-1"), project="Platform")
+    assert _format_row_meta(with_project).plain == "Platform · 3h"
+
+    without_project = replace(issue("ENG-2"), project="")
+    assert _format_row_meta(without_project).plain == "3h"
 
 
-def test_the_medium_glyph_carries_no_style():
-    rendered = panel_with(
-        replace(issue("ENG-1"), priority="Low"), replace(issue("ENG-2"), priority="Medium")
-    ).render_ready()
-    assert _style_at(rendered, "!") is None
+def test_a_cell_is_two_lines_with_the_meta_under_the_id_column(monkeypatch):
+    monkeypatch.setattr("smorg.shell.format.now", lambda: NOW + timedelta(hours=3))
+    with_project = replace(issue("ENG-1"), project="Platform")
+    lines = panel_with(with_project).body_text().splitlines()
+    row_indexes = [index for index, line in enumerate(lines) if "ENG-1" in line]
+    assert len(row_indexes) == 1
+    row = lines[row_indexes[0]]
+    assert "title of ENG-1" in row
+    assert "◕" in row
+    assert "Platform · 3h" in lines[row_indexes[0] + 1]
 
 
-def test_the_fallback_glyph_is_dim():
-    rendered = panel_with(
-        replace(issue("ENG-1"), priority="Medium"), replace(issue("ENG-2"), priority="Low")
-    ).render_ready()
-    assert _style_at(rendered, "·") == "dim"
+def test_a_light_background_picks_the_brand_indigo_and_a_dark_one_the_lighter_tint():
+    assert accent_for_background((250, 250, 250)) == "#5e6ad2"
+    assert accent_for_background((10, 10, 10)) == "#828fff"
+    assert accent_for_background(None) == "#828fff"
 
 
 # --- Stable status-group ordering ---
 
 
 def test_status_groups_render_in_a_fixed_actionability_order_regardless_of_input_order():
-    text = (
-        panel_with(
-            issue("ENG-1", "Blocked"),
-            issue("ENG-2", "Todo"),
-            issue("ENG-3", "In Review"),
-            issue("ENG-4", "In Progress"),
-        )
-        .render_ready()
-        .plain
-    )
+    text = panel_with(
+        issue("ENG-1", "Blocked"),
+        issue("ENG-2", "Todo"),
+        issue("ENG-3", "In Review"),
+        issue("ENG-4", "In Progress"),
+    ).body_text()
     positions = [text.index(status) for status in ("In Progress", "In Review", "Todo", "Blocked")]
     assert positions == sorted(positions)
 
 
 def test_an_unknown_started_status_group_sorts_between_in_review_and_todo():
     unknown = replace(issue("ENG-5", "Doing The Work"), status_type="started")
-    text = (
-        panel_with(issue("ENG-1", "Todo"), unknown, issue("ENG-2", "In Review"))
-        .render_ready()
-        .plain
-    )
+    text = panel_with(issue("ENG-1", "Todo"), unknown, issue("ENG-2", "In Review")).body_text()
     assert text.index("In Review") < text.index("Doing The Work") < text.index("Todo")
 
 
 def test_an_unknown_unstarted_status_group_sorts_between_todo_and_blocked():
     unknown = replace(issue("ENG-5", "Someday"), status_type="unstarted")
-    text = (
-        panel_with(issue("ENG-1", "Blocked"), unknown, issue("ENG-2", "Todo")).render_ready().plain
-    )
+    text = panel_with(issue("ENG-1", "Blocked"), unknown, issue("ENG-2", "Todo")).body_text()
     assert text.index("Todo") < text.index("Someday") < text.index("Blocked")
 
 
 def test_two_unknown_same_type_status_groups_sort_alphabetically():
     zebra = replace(issue("ENG-5", "Zebra Work"), status_type="started")
     alpha = replace(issue("ENG-6", "Alpha Work"), status_type="started")
-    text = panel_with(zebra, alpha).render_ready().plain
+    text = panel_with(zebra, alpha).body_text()
     assert text.index("Alpha Work") < text.index("Zebra Work")
 
 
 def test_rows_truncate_instead_of_wrapping():
-    rendered = panel_with(issue("ENG-1")).render_ready()
-    assert rendered.no_wrap is True
-    assert rendered.overflow == "ellipsis"
+    long_title = replace(issue("ENG-1"), title="a title far too long to fit " + "x" * 200)
+    text = panel_with(long_title).body_text()
+    rows = [line for line in text.splitlines() if "ENG-1" in line]
+    assert len(rows) == 1
+    assert "…" in rows[0]
 
 
 def test_no_issue_is_selected_when_the_panel_is_empty():
@@ -280,8 +269,8 @@ def test_the_selected_row_carries_the_selection_marker():
     panel.cursor = 1
     text = panel.body_text()
     marked = [line for line in text.splitlines() if "▸" in line]
-    assert any("ENG-2" in line for line in marked)
-    assert not any("ENG-1" in line for line in marked)
+    assert any("title of ENG-2" in line for line in marked)
+    assert not any("title of ENG-1" in line for line in marked)
 
 
 class _LinearPanelHarness(App[None]):
@@ -441,9 +430,11 @@ async def test_a_hostile_status_is_never_interpreted_as_markup_in_the_real_rende
 
 
 def test_plain_output_is_derived_from_the_styled_render():
-    """One row builder: the plain path must be the styled Text's own .plain."""
     panel = panel_with(issue("ENG-1", "In Review"), issue("ENG-2", "Todo"))
-    assert panel.body_text() == panel.render_ready().plain.strip()
+    console = Console(width=80, file=io.StringIO(), force_terminal=False)
+    with console.capture() as capture:
+        console.print(panel.render_ready())
+    assert panel.body_text() == capture.get().strip()
 
 
 # --- Detail region ---

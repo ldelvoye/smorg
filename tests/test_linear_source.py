@@ -68,6 +68,7 @@ def test_fields_are_mapped_onto_the_item():
     assert first.status_type == "started"
     assert first.team == "Infrastructure Engineering"
     assert first.priority == "High"
+    assert first.project == "Data Platform"
     assert first.url.startswith("https://linear.app/")
     assert first.updated_at == datetime(2026, 8, 12, 22, 35, 5, 790000, tzinfo=UTC)
 

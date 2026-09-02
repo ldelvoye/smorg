@@ -13,6 +13,11 @@
 
 ## Existing integrations
 
+### Linear
+
+- UI overhaul
+
+
 ### Github
 
 - Add gh login auth method
