@@ -29,3 +29,8 @@ def format_count(count: int, noun: str) -> str:
     if count == 1:
         return f"1 {noun}"
     return f"{count} {noun}s"
+
+
+def format_box(body: list[RenderableType]) -> Card:
+    """A titleless rounded card, for a column whose sections name themselves."""
+    return Card(Group(*body), box=box.ROUNDED, border_style=CARD_BORDER_STYLE, padding=(0, 1))
