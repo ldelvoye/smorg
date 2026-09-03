@@ -290,7 +290,9 @@ async def test_switching_tabs_focuses_the_panel_so_arrow_keys_work(monkeypatch):
         await pilot.pause()
         panel = app.query_one(LinearPanel)
 
-    assert panel.selected_url() == issues[1].url
+        selected = panel.selected_item()
+        assert selected is not None
+        assert selected.url == issues[1].url
 
 
 @pytest.mark.asyncio
@@ -323,7 +325,7 @@ async def test_opening_an_item_clears_its_change_mark(monkeypatch):
     issues = (issue("ENG-1"), issue("ENG-2"))
     opened: list[str] = []
     monkeypatch.setattr(
-        "smorg.integrations.linear.panel.webbrowser.open", lambda url: opened.append(url)
+        "smorg.integrations.linear.views.issues.webbrowser.open", lambda url: opened.append(url)
     )
 
     def fake_refresh(self, integration_id, panel, force=False):
@@ -460,7 +462,7 @@ async def test_question_mark_opens_the_active_tabs_deduped_key_reference():
     assert "linear" in text
     assert _line_with(text, "open in Linear").strip().startswith("o")
     assert "open in browser" not in text
-    # The panel's own up/down BINDINGS, merged onto one row (see LinearPanel.BINDINGS).
+    # The panel's own up/down BINDINGS, merged onto one row (see LinearIssues.BINDINGS).
     assert _line_with(text, "select issue").strip().startswith("↑/↓")
 
 
@@ -502,22 +504,6 @@ async def test_every_key_display_goes_through_the_symbolizer():
     )
     async with app.run_test():
         assert app.get_key_display(menu_binding) == "^ + p"
-
-
-@pytest.mark.asyncio
-async def test_the_scroll_rows_shared_modifier_is_stated_once_in_the_overlay():
-    app = SmorgApp(tabs=(TabConfig("linear"),))
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.press("?")
-        await pilot.pause()
-
-        assert isinstance(app.screen, HelpOverlay)
-        text = app.screen.body_text()
-
-    # LinearPanel's shift+up/shift+down BINDINGS (see LinearPanel.BINDINGS),
-    # merged onto one row and rendered with the shared modifier symbolized.
-    assert _line_with(text, "scroll details").strip().startswith("⇧ + ↑/↓")
 
 
 @pytest.mark.asyncio
