@@ -12,7 +12,9 @@ from smorg.integrations.linear.source import (
     COMMENT_BODY_LIMIT,
     DESCRIPTION_LIMIT,
     FIELDS,
+    SUB_ISSUE_FIELDS,
     Issue,
+    Link,
     fetch,
 )
 
@@ -252,9 +254,26 @@ def detail_handler(overrides: dict | None = None) -> Callable[[httpx.Request], h
         if body["method"] != "tools/call":
             return httpx.Response(202)
         name = body["params"]["name"]
+        arguments = body["params"]["arguments"]
+        if name == "get_issue" and arguments["id"] == payloads["parent"]["id"]:
+            return sse(payloads["parent"])
         if name == "get_issue":
             return sse(payloads["issue"])
+        if name == "list_issues":
+            return sse(payloads["children"])
         return sse(payloads["comments"])
+
+    return handler
+
+
+def recording_detail_handler(calls: list[tuple[str, dict]], overrides: dict | None = None):
+    inner = detail_handler(overrides)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if body["method"] == "tools/call":
+            calls.append((body["params"]["name"], body["params"]["arguments"]))
+        return inner(request)
 
     return handler
 
@@ -263,7 +282,11 @@ def detail_with(handler):
     from smorg.core.contract import Item
     from smorg.integrations.linear.source import fetch_detail
 
-    item = Item(id="ENG-1", updated_at=datetime(2026, 8, 13, 12, 0, tzinfo=UTC), url="https://x")
+    item = Item(
+        id="ENG-1",
+        updated_at=datetime(2026, 8, 13, 12, 0, tzinfo=UTC),
+        url="https://linear.app/x/issue/ENG-1/title-of-eng-1",
+    )
     return fetch_detail(CREDENTIALS, httpx.Client(transport=httpx.MockTransport(handler)), item)
 
 
@@ -508,15 +531,144 @@ def test_detail_reuses_the_cached_handshake():
     warm = counting_handler(methods)
     fetch_with(warm)
 
+    inner = detail_handler()
+
     def handler(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content)
-        methods.append(body["method"])
-        if body["method"] != "tools/call":
-            return httpx.Response(202)
-        name = body["params"]["name"]
-        if name == "get_issue":
-            return sse(DETAIL["issue"])
-        return sse(DETAIL["comments"])
+        methods.append(json.loads(request.content)["method"])
+        return inner(request)
 
     detail_with(handler)
     assert methods.count("initialize") == 1
+
+
+# --- The richer detail: properties, parent, sub-issues, relations, links, history ---
+
+
+def test_detail_maps_every_property_and_sub_list():
+    detail = detail_with(detail_handler())
+
+    assert detail.creator == "Alice Author"
+    assert detail.labels == ("Tech Debt", "maintenance")
+    assert detail.project == "Improve Redis Scalability"
+    assert detail.milestone == "Reduce forever data"
+    assert detail.due_date == "2026-09-30"
+    assert detail.estimate == "3"
+
+    assert detail.parent is not None
+    assert (detail.parent.id, detail.parent.title) == ("ENG-0", "the parent epic")
+    assert detail.parent.status_type == "started"
+
+    assert [child.id for child in detail.sub_issues] == ["ENG-2", "ENG-3"]
+    assert detail.sub_issues[0].status_type == "completed"
+    assert detail.sub_issues[0].priority == "Medium"
+    assert detail.sub_issues[1].priority == "No priority"
+    assert detail.sub_issues[0].url == "https://linear.app/x/issue/ENG-2"
+
+    assert [issue.id for issue in detail.blocked_by] == ["ENG-5"]
+    assert [issue.id for issue in detail.blocks] == ["ENG-7"]
+    related_ids = ["ENG-10", "ENG-11", "ENG-12", "ENG-13", "ENG-14", "ENG-15", "ENG-16"]
+    assert [issue.id for issue in detail.related] == related_ids
+    assert detail.related[0].url == "https://linear.app/x/issue/ENG-10"
+    assert detail.blocked_by[0].url == "https://linear.app/x/issue/ENG-5"
+
+    assert detail.links == (
+        Link(title="chore: widen the column", url="https://github.com/x/y/pull/12"),
+        Link(title="https://github.com/x/y/pull/13", url="https://github.com/x/y/pull/13"),
+    )
+
+    assert [step.status for step in detail.transitions] == ["Backlog", "In Progress", "In Review"]
+    assert detail.transitions[0].status_type == "backlog"
+    assert detail.transitions[0].at == datetime(2026, 8, 1, 10, 0, tzinfo=UTC)
+
+
+def test_a_link_url_with_whitespace_or_control_characters_is_dropped():
+    issue = json.loads(json.dumps(DETAIL["issue"]))
+    issue["attachments"] = [
+        {"id": "a1", "title": "x", "subtitle": None, "url": "https://x.com/a conceal"},
+        {"id": "a2", "title": "y", "subtitle": None, "url": "https://x.com/\x1b[2J"},
+        {"id": "a3", "title": "z", "subtitle": None, "url": "https://[oops"},
+    ]
+    detail = detail_with(detail_handler({"issue": issue}))
+    assert detail.links == ()
+
+
+def test_a_long_https_link_url_is_kept_whole():
+    long_url = "https://linear.app/getsentry/review/" + "a" * 200
+    issue = json.loads(json.dumps(DETAIL["issue"]))
+    issue["attachments"] = [{"id": "a1", "title": None, "subtitle": None, "url": long_url}]
+    detail = detail_with(detail_handler({"issue": issue}))
+    assert detail.links == (Link(title=long_url, url=long_url),)
+
+
+def test_a_relation_gets_no_link_when_the_issue_url_has_no_issue_path():
+    from smorg.core.contract import Item
+    from smorg.integrations.linear.source import fetch_detail
+
+    item = Item(id="ENG-1", updated_at=datetime(2026, 8, 13, 12, 0, tzinfo=UTC), url="https://x")
+    client = httpx.Client(transport=httpx.MockTransport(detail_handler()))
+    detail = fetch_detail(CREDENTIALS, client, item)
+    assert detail.related[0].url == ""
+
+
+def test_the_sub_issue_and_parent_calls_carry_the_right_arguments():
+    calls: list[tuple[str, dict]] = []
+    detail_with(recording_detail_handler(calls))
+
+    names = [name for name, _ in calls]
+    assert names == ["get_issue", "list_comments", "list_issues", "get_issue"]
+    assert calls[0][1] == {"id": "ENG-1", "includeRelations": True}
+    assert calls[2][1]["parentId"] == "ENG-1"
+    assert calls[2][1]["fields"] == list(SUB_ISSUE_FIELDS)
+    assert calls[3][1] == {"id": "ENG-0"}
+
+
+def test_no_parent_means_no_parent_call():
+    issue = json.loads(json.dumps(DETAIL["issue"])) | {"parentId": None}
+    calls: list[tuple[str, dict]] = []
+    detail = detail_with(recording_detail_handler(calls, {"issue": issue}))
+
+    assert detail.parent is None
+    assert [name for name, _ in calls].count("get_issue") == 1
+
+
+def test_missing_optional_blocks_yield_empty_values():
+    issue = json.loads(json.dumps(DETAIL["issue"]))
+    optional_keys = (
+        "labels",
+        "projectMilestone",
+        "dueDate",
+        "estimate",
+        "attachments",
+        "stateHistory",
+        "relations",
+        "createdBy",
+    )
+    for key in optional_keys:
+        issue.pop(key)
+    detail = detail_with(detail_handler({"issue": issue}))
+
+    assert detail.labels == ()
+    assert detail.milestone == ""
+    assert detail.due_date == ""
+    assert detail.estimate == ""
+    assert detail.creator == ""
+    assert detail.links == ()
+    assert detail.transitions == ()
+    assert detail.blocked_by == () and detail.blocks == () and detail.related == ()
+
+
+def test_an_unparseable_due_date_is_malformed():
+    issue = json.loads(json.dumps(DETAIL["issue"])) | {"dueDate": "next tuesday"}
+    with pytest.raises(Malformed):
+        detail_with(detail_handler({"issue": issue}))
+
+
+def test_a_pull_request_tag_unwraps_like_an_issue_tag():
+    issue = json.loads(json.dumps(DETAIL["issue"])) | {
+        "description": 'closed as <pull-request id="p1" href="https://linear.app/x/review/abc">'
+        "getsentry/sentry#121122</pull-request> unmerged"
+    }
+    detail = detail_with(detail_handler({"issue": issue}))
+    assert detail.description == (
+        "closed as [getsentry/sentry#121122](https://linear.app/x/review/abc) unmerged"
+    )
