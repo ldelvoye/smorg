@@ -25,12 +25,7 @@ from smorg.integrations.github.source import (
     PullRequestDetail,
     PullRequestDiff,
 )
-from smorg.integrations.github.views import (
-    CARD_TITLE_STYLE,
-    SELECTED_MARK,
-    format_card,
-    format_count,
-)
+from smorg.shell.cards import CARD_TITLE_STYLE, SELECTED_MARK, format_card, format_count
 from smorg.shell.panel import ScrollGutter
 from smorg.shell.terminal_palette import StatusColors
 

@@ -26,7 +26,7 @@ from smorg.integrations.github.source import (
     Reviewer,
     ReviewerState,
 )
-from smorg.integrations.github.views import CARD_TITLE_STYLE, format_card, format_count
+from smorg.shell.cards import CARD_TITLE_STYLE, format_card, format_count
 from smorg.shell.format import age, format_hidden_line
 from smorg.shell.markdown import Markdown
 from smorg.shell.panel import ScrollGutter
