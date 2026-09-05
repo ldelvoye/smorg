@@ -4,10 +4,52 @@
     "title": "title of ENG-1",
     "description": "First line.\nSecond line.",
     "assignee": "Lucas Delvoye",
+    "createdBy": "Alice Author",
     "status": "In Review",
     "statusType": "started",
     "url": "https://linear.app/x/issue/ENG-1",
+    "updatedAt": "2026-08-13T12:00:00.000Z",
+    "labels": ["Tech Debt", "maintenance"],
+    "project": "Improve Redis Scalability",
+    "projectMilestone": {"id": "m1", "name": "Reduce forever data"},
+    "dueDate": "2026-09-30",
+    "estimate": 3,
+    "parentId": "ENG-0",
+    "attachments": [
+      {"id": "a1", "title": "chore: widen the column", "subtitle": null, "url": "https://github.com/x/y/pull/12"},
+      {"id": "a2", "title": null, "subtitle": null, "url": "http://insecure.example/doc"},
+      {"id": "a3", "title": null, "subtitle": null, "url": "https://github.com/x/y/pull/13"}
+    ],
+    "stateHistory": [
+      {"state": {"id": "s1", "name": "Backlog", "type": "backlog"}, "startedAt": "2026-08-01T10:00:00.000Z", "endedAt": "2026-08-02T10:00:00.000Z"},
+      {"state": {"id": "s2", "name": "In Progress", "type": "started"}, "startedAt": "2026-08-02T10:00:00.000Z", "endedAt": "2026-08-12T09:00:00.000Z"},
+      {"state": {"id": "s3", "name": "In Review", "type": "started"}, "startedAt": "2026-08-12T09:00:00.000Z", "endedAt": null}
+    ],
+    "relations": {
+      "blocks": [{"id": "ENG-7", "title": "Ship the thing"}],
+      "blockedBy": [{"id": "ENG-5", "title": "Land the prerequisite"}],
+      "relatedTo": [
+        {"id": "ENG-10", "title": "r1"}, {"id": "ENG-11", "title": "r2"}, {"id": "ENG-12", "title": "r3"},
+        {"id": "ENG-13", "title": "r4"}, {"id": "ENG-14", "title": "r5"}, {"id": "ENG-15", "title": "r6"},
+        {"id": "ENG-16", "title": "r7"}
+      ],
+      "duplicateOf": null
+    }
+  },
+  "parent": {
+    "id": "ENG-0",
+    "title": "the parent epic",
+    "status": "In Progress",
+    "statusType": "started",
+    "url": "https://linear.app/x/issue/ENG-0",
     "updatedAt": "2026-08-13T12:00:00.000Z"
+  },
+  "children": {
+    "issues": [
+      {"id": "ENG-2", "title": "first child", "status": "Done", "statusType": "completed", "priority": {"value": 3, "name": "Medium"}},
+      {"id": "ENG-3", "title": "second child", "status": "Todo", "statusType": "unstarted", "priority": {"value": 0, "name": "No priority"}}
+    ],
+    "hasNextPage": false
   },
   "comments": {
     "comments": [
