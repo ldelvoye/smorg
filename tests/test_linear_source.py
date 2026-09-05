@@ -547,6 +547,12 @@ def test_detail_reuses_the_cached_handshake():
 def test_detail_maps_every_property_and_sub_list():
     detail = detail_with(detail_handler())
 
+    assert (detail.status, detail.status_type) == ("In Review", "started")
+    assert detail.priority == "High"
+    assert detail.team == "Infra"
+    assert detail.parent is not None
+    assert detail.parent.url == "https://linear.app/x/issue/ENG-0"
+
     assert detail.creator == "Alice Author"
     assert detail.labels == ("Tech Debt", "maintenance")
     assert detail.project == "Improve Redis Scalability"
@@ -554,7 +560,6 @@ def test_detail_maps_every_property_and_sub_list():
     assert detail.due_date == "2026-09-30"
     assert detail.estimate == "3"
 
-    assert detail.parent is not None
     assert (detail.parent.id, detail.parent.title) == ("ENG-0", "the parent epic")
     assert detail.parent.status_type == "started"
 

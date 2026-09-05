@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import VerticalScroll
 from textual.widgets import Static
 
 from smorg.shell.modal import ModalBox
+from smorg.shell.panel import GutteredScroll
 
 Row = tuple[str, str]
 Section = tuple[str, list[Row]]
@@ -33,7 +33,7 @@ class HelpOverlay(ModalBox):
     def compose(self) -> ComposeResult:
         # markup=False: consistent with Panel's rule for server/manifest
         # text, kept even though these strings are all our own.
-        body = VerticalScroll(Static(self.body_text(), markup=False), classes="box")
+        body = GutteredScroll(Static(self.body_text(), markup=False), classes="box")
         body.border_title = "keys"
         yield body
 

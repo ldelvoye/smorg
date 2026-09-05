@@ -5,7 +5,7 @@ from __future__ import annotations
 from textual.screen import ModalScreen
 
 
-class ModalBox(ModalScreen[None]):
+class ModalBox(ModalScreen[object | None]):
     """A modal centered on screen, with a round-bordered box for whichever container a subclass
     composes. Tag that container with the "box" CSS class to opt into the shared
     border/padding/background.

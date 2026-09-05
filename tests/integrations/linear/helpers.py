@@ -33,6 +33,10 @@ def issue(identifier: str = "ENG-1", status: str = "In Review") -> Issue:
 def detail(**overrides) -> IssueDetail:
     fields = {
         "description": "the description",
+        "status": "In Review",
+        "status_type": "started",
+        "priority": "High",
+        "team": "Infra",
         "assignee": "Lucas Delvoye",
         "creator": "",
         "labels": (),

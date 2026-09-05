@@ -16,6 +16,7 @@ from smorg.shell.terminal_palette import StatusColors
 from .helpers import NOW, PanelHarness, issue, issues_with, panel_with
 
 COLORS = StatusColors(red="#f85149", yellow="#d29922", green="#3fb950")
+ACCENT = accent_for_background(None)
 
 
 def test_issues_are_grouped_by_status():
@@ -74,7 +75,7 @@ def _style_at(rendered: Text, substring: str) -> str | Style | None:
         ("Blocked", "started", "⊘", COLORS.red),
         ("Doing The Work", "started", "◐", COLORS.yellow),
         ("Someday", "unstarted", "○", "dim"),
-        ("Done", "completed", "●", "dim"),
+        ("Done", "completed", "●", ACCENT),
         ("Canceled", "canceled", "⊘", "dim"),
         ("Backlog", "backlog", "◌", "dim"),
     ],
@@ -83,7 +84,7 @@ def test_status_disc_and_color_mapping(
     status: str, status_type: str, disc: str, color: str
 ) -> None:
     assert status_disc(status, status_type) == disc
-    assert status_color(status, status_type, COLORS) == color
+    assert status_color(status, status_type, COLORS, ACCENT) == color
 
 
 def test_priority_bars_fill_to_the_level_in_the_stage_color_with_own_glyphs_for_urgent_and_none():

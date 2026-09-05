@@ -26,7 +26,7 @@ from smorg.integrations.github.source import (
     PullRequestDiff,
 )
 from smorg.shell.cards import CARD_TITLE_STYLE, SELECTED_MARK, format_card, format_count
-from smorg.shell.panel import ScrollGutter
+from smorg.shell.panel import GutteredScroll
 from smorg.shell.terminal_palette import StatusColors
 
 if TYPE_CHECKING:
@@ -232,10 +232,8 @@ class GitHubDiffView(Vertical):
     GitHubDiffView { height: 1fr; }
     GitHubDiffView > #diff-header { height: auto; padding: 0 2; margin-bottom: 1; }
     GitHubDiffView > #diff-body { height: 1fr; }
-    GitHubDiffView > #diff-body > #diff-files-scroll {
-        width: 48; padding: 0 2; scrollbar-size-vertical: 0;
-    }
-    GitHubDiffView > #diff-body > #diff-card-scroll { width: 1fr; scrollbar-size-vertical: 0; }
+    GitHubDiffView > #diff-body > #diff-files-scroll { width: 48; padding: 0 2; }
+    GitHubDiffView > #diff-body > #diff-card-scroll { width: 1fr; }
     """
 
     def __init__(self, panel: GitHubPanel) -> None:
@@ -251,11 +249,10 @@ class GitHubDiffView(Vertical):
     def compose(self) -> ComposeResult:
         yield _DiffHeader(self)
         with Horizontal(id="diff-body"):
-            with VerticalScroll(id="diff-files-scroll"):
+            with GutteredScroll(id="diff-files-scroll"):
                 yield _DiffFileList(self)
-            with VerticalScroll(id="diff-card-scroll"):
+            with GutteredScroll(id="diff-card-scroll"):
                 yield _DiffCard(self)
-                yield ScrollGutter()
         yield GitHubLoading("loading the diff", id="diff-loading")
 
     def on_mount(self) -> None:

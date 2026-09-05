@@ -38,6 +38,7 @@ from smorg.shell.format import merge_key_display, symbolize_key_display
 from smorg.shell.help import HelpOverlay, Row, Section
 from smorg.shell.menu import ManagementScreen, MenuCommands
 from smorg.shell.panel import Panel, PanelState
+from smorg.shell.picker import Picker
 from smorg.shell.refresh_indicator import RefreshIndicator, RefreshStage
 from smorg.shell.terminal_palette import TerminalPalette, ensure_theme_contrast
 
@@ -175,8 +176,8 @@ class SmorgApp(App[None]):
         return self._palette
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        """Block every shell-level action while a management screen is on top."""
-        if isinstance(self.screen, ManagementScreen):
+        """Block every shell-level action while a management screen or a picker is on top."""
+        if isinstance(self.screen, (ManagementScreen, Picker)):
             return False
         return super().check_action(action, parameters)
 

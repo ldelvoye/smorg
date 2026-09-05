@@ -14,7 +14,7 @@ from textual.containers import VerticalScroll
 from textual.widgets import Static
 
 from smorg.core.contract import Item
-from smorg.shell.panel import Panel, ScrollGutter
+from smorg.shell.panel import GutteredScroll, Panel
 
 
 class SplitDetailPanel(Panel):
@@ -27,10 +27,6 @@ class SplitDetailPanel(Panel):
         display: none;
         height: 60%;
         border-top: solid $primary;
-        /* Hidden — the gutter widget shows scroll position instead; mouse
-         * wheel and shift+up/down still work since both scroll the
-         * container's offset directly rather than dragging the bar. */
-        scrollbar-size-vertical: 0;
     }
     SplitDetailPanel > #detail.-open { display: block; }
     /* One blank row so the last line of detail content never sits flush
@@ -46,9 +42,7 @@ class SplitDetailPanel(Panel):
 
     def compose(self) -> ComposeResult:
         yield from super().compose()
-        detail = VerticalScroll(
-            Static(markup=False, id="detail-content"), ScrollGutter(), id="detail"
-        )
+        detail = GutteredScroll(Static(markup=False, id="detail-content"), id="detail")
         # The panel keeps focus; the region is scrolled through panel actions, never
         # focused itself.
         detail.can_focus = False

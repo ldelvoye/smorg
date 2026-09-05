@@ -19,7 +19,7 @@ from smorg.core.text import sanitize_block, sanitize_line, truncate
 ENDPOINT = "https://mcp.linear.app/mcp"
 
 # Linear embeds machine tags in descriptions and comment bodies, e.g.
-# <issue id="..." href="https://linear.app/...">ENG-123</issue>. Only these four known names are
+# <issue id="..." href="https://linear.app/...">ENG-123</issue>. Only these five known names are
 # touched, so unrelated angle-bracket text (a code fence's own literal HTML, say) is left alone.
 _LINEAR_TAG_NAMES = ("issue", "user", "project", "document", "pull-request")
 _LINEAR_PAIRED_TAG = re.compile(
@@ -105,11 +105,16 @@ class ParentSummary:
     title: str
     status: str
     status_type: str
+    url: str = ""
 
 
 @dataclass(frozen=True)
 class IssueDetail:
     description: str
+    status: str
+    status_type: str
+    priority: str
+    team: str
     assignee: str
     creator: str
     labels: tuple[str, ...]
@@ -193,10 +198,11 @@ def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> Is
         "list_issues",
         {"parentId": item.id, "limit": SUB_ISSUE_FETCH_LIMIT, "fields": list(SUB_ISSUE_FIELDS)},
     )
+    url_base = _issue_url_base(item.url)
     parent_id = optional_string(issue_payload, "parentId")
     if parent_id:
         parent_payload = session.call("get_issue", {"id": parent_id})
-        parent = _parent_of(parent_payload)
+        parent = _parent_of(parent_payload, url_base)
     else:
         parent = None
 
@@ -209,9 +215,12 @@ def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> Is
         relations = {}
     if not isinstance(relations, dict):
         raise Malformed(f"'relations' was {type(relations).__name__}, expected an object")
-    url_base = _issue_url_base(item.url)
     return IssueDetail(
         description=description,
+        status=sanitize_line(required_string(issue_payload, "status")),
+        status_type=required_string(issue_payload, "statusType"),
+        priority=_priority_of(issue_payload),
+        team=_clean_optional(issue_payload, "team"),
         assignee=_clean_optional(issue_payload, "assignee"),
         creator=_clean_optional(issue_payload, "createdBy"),
         labels=_labels_of(issue_payload),
@@ -285,12 +294,14 @@ def _due_date_of(raw: dict[str, Any]) -> str:
     return value
 
 
-def _parent_of(raw: dict[str, Any]) -> ParentSummary:
+def _parent_of(raw: dict[str, Any], url_base: str) -> ParentSummary:
+    identifier = sanitize_line(required_string(raw, "id"))
     return ParentSummary(
-        id=sanitize_line(required_string(raw, "id")),
+        id=identifier,
         title=sanitize_line(required_string(raw, "title")),
         status=sanitize_line(required_string(raw, "status")),
         status_type=required_string(raw, "statusType"),
+        url=_https_of(f"{url_base}{identifier}"),
     )
 
 

@@ -7,6 +7,8 @@
     "createdBy": "Alice Author",
     "status": "In Review",
     "statusType": "started",
+    "priority": {"value": 2, "name": "High"},
+    "team": "Infra",
     "url": "https://linear.app/x/issue/ENG-1",
     "updatedAt": "2026-08-13T12:00:00.000Z",
     "labels": ["Tech Debt", "maintenance"],
