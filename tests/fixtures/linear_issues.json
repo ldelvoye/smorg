@@ -9,7 +9,8 @@
         "updatedAt": "2026-08-12T22:35:05.790Z",
         "url": "https://linear.app/getsentry/issue/INFRENG-446/dual-write",
         "team": "Infrastructure Engineering",
-        "priority": { "value": 2, "name": "High" }
+        "priority": { "value": 2, "name": "High" },
+        "project": "Data Platform"
       },
       {
         "id": "CTRL-8",

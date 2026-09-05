@@ -16,7 +16,8 @@ from textual.containers import Vertical
 from textual.widgets import Static
 
 from smorg.integrations.github.source import PushedBranch
-from smorg.integrations.github.views import CHANGED_MARK, SELECTED_MARK, GitHubView
+from smorg.integrations.github.views import GitHubView
+from smorg.shell.cards import CHANGED_MARK, SELECTED_MARK
 from smorg.shell.format import age
 from smorg.shell.panel import PanelState
 from smorg.shell.terminal_palette import StatusColors

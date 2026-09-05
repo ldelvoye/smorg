@@ -36,6 +36,7 @@ FIELDS = (
     "url",
     "team",
     "priority",
+    "project",
 )
 
 ACTIVE_STATUS_TYPES = frozenset({"started", "unstarted"})
@@ -55,6 +56,7 @@ class Issue(Item):
     status_type: str
     team: str
     priority: str
+    project: str
 
 
 @dataclass(frozen=True)
@@ -122,6 +124,7 @@ def _issue_of(raw: Any) -> Issue:
         status_type=required_string(raw, "statusType"),
         team=optional_string(raw, "team"),
         priority=_priority_of(raw),
+        project=optional_string(raw, "project"),
     )
 
 

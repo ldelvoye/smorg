@@ -2,53 +2,64 @@
 
 from __future__ import annotations
 
+import io
 import webbrowser
 
-from rich.console import Group, RenderableType
+from rich.console import Console, Group, RenderableType
 from rich.text import Text
 from textual.binding import Binding
 
 from smorg.core.contract import Item
+from smorg.integrations.linear.palette import accent_for_background
 from smorg.integrations.linear.source import Comment, Issue, IssueDetail
+from smorg.shell.cards import CARD_TITLE_STYLE, CHANGED_MARK, SELECTED_MARK, format_card
 from smorg.shell.detail_pane import SplitDetailPanel
 from smorg.shell.format import age, format_hidden_line
 from smorg.shell.markdown import Markdown
 from smorg.shell.terminal_palette import StatusColors
 
-_CHANGED_MARK = "●"
-_SELECTED_MARK = "▸"
-
-# The longest glyph ("!!!" for Urgent) sets the column width so titles line up.
-_GLYPH_WIDTH = 3
-
 # Ordered by actionability: doing, shepherding, queued, stuck.
 _STATUS_RANKS = {"in progress": 0, "in review": 1, "todo": 3, "blocked": 5}
 
+_DISC_IN_PROGRESS = "◐"
+_DISC_IN_REVIEW = "◕"
+_DISC_TODO = "○"
+_DISC_BLOCKED = "⊘"
 
-def _priority_glyph(priority: str, colors: StatusColors) -> tuple[str, str | None]:
-    if priority == "Urgent":
-        return "!!!".ljust(_GLYPH_WIDTH), f"bold {colors.red}"
-    if priority == "High":
-        return "!!".ljust(_GLYPH_WIDTH), colors.yellow
-    if priority == "Medium":
-        return "!".ljust(_GLYPH_WIDTH), None
-    return "·".ljust(_GLYPH_WIDTH), "dim"
+_PRIORITY_WIDTH = 3
+# The meta line starts under the id column: marks (3), priority (3), and their two separators.
+_META_INDENT = " " * 8
 
 
-def _status_style(status: str, status_type: str, colors: StatusColors) -> str:
+def _status_disc(status: str, status_type: str) -> str:
     normalized = status.casefold()
     if normalized == "in progress":
-        return f"bold {colors.yellow}"
+        return _DISC_IN_PROGRESS
     if normalized == "in review":
-        return f"bold {colors.green}"
+        return _DISC_IN_REVIEW
     if normalized == "todo":
-        return "bold"
+        return _DISC_TODO
     if normalized == "blocked":
-        return f"bold {colors.red}"
+        return _DISC_BLOCKED
     # Unknown labels fall back to the stable machine category.
     if status_type == "started":
-        return f"bold {colors.yellow}"
-    return "bold"
+        return _DISC_IN_PROGRESS
+    return _DISC_TODO
+
+
+def _status_color(status: str, status_type: str, colors: StatusColors) -> str:
+    normalized = status.casefold()
+    if normalized == "in progress":
+        return colors.yellow
+    if normalized == "in review":
+        return colors.green
+    if normalized == "todo":
+        return "dim"
+    if normalized == "blocked":
+        return colors.red
+    if status_type == "started":
+        return colors.yellow
+    return "dim"
 
 
 def _status_rank(status: str, status_type: str) -> int:
@@ -58,6 +69,75 @@ def _status_rank(status: str, status_type: str) -> int:
     if status_type == "started":
         return 2
     return 4
+
+
+def _format_priority(priority: str, colors: StatusColors, stage_color: str) -> Text:
+    """Linear's priority icon: ascending bars filled to the level, dashes for none, [!] urgent."""
+    if stage_color == "dim":
+        # A dim fill would vanish against the dim unfilled bars, so a muted stage fills plain.
+        fill = ""
+    else:
+        fill = stage_color
+    if priority == "Urgent":
+        return Text("[!]", style=f"bold {colors.red}")
+    if priority == "High":
+        return Text("▂▄▆", style=fill)
+    if priority == "Medium":
+        bars = Text("▂▄", style=fill)
+        bars.append("▆", style="dim")
+        return bars
+    if priority == "Low":
+        bars = Text("▂", style=fill)
+        bars.append("▄▆", style="dim")
+        return bars
+    return Text("---", style="dim")
+
+
+def _format_marks(selected: bool, changed: bool, accent: str) -> Text:
+    marks = Text()
+    if selected:
+        marks.append(SELECTED_MARK, style="bold")
+    else:
+        marks.append(" ")
+    marks.append(" ")
+    if changed:
+        marks.append(CHANGED_MARK, style=accent)
+    else:
+        marks.append(" ")
+    return marks
+
+
+def _format_card_title(status: str, status_type: str, count: int, colors: StatusColors) -> Text:
+    color = _status_color(status, status_type, colors)
+    if color == "dim":
+        style = CARD_TITLE_STYLE
+    else:
+        style = f"{CARD_TITLE_STYLE} {color}"
+    disc = _status_disc(status, status_type)
+    return Text(f"{disc} {status} ({count})", style=style)
+
+
+def _format_row_meta(issue: Issue) -> Text:
+    meta = Text(style="dim")
+    if issue.project:
+        meta.append(issue.project)
+        meta.append(" · ")
+    meta.append(age(issue.updated_at))
+    return meta
+
+
+def _status_groups(issues: tuple[Issue, ...]) -> list[tuple[str, str, list[Issue]]]:
+    """Runs of consecutive same-status issues, in the order _grouped() already sorted them into."""
+    groups: list[tuple[str, str, list[Issue]]] = []
+    current_status = ""
+    current_members: list[Issue] = []
+    for issue in issues:
+        if issue.status != current_status:
+            current_status = issue.status
+            current_members = []
+            groups.append((issue.status, issue.status_type, current_members))
+        current_members.append(issue)
+    return groups
 
 
 class LinearPanel(SplitDetailPanel):
@@ -70,6 +150,10 @@ class LinearPanel(SplitDetailPanel):
         Binding("shift+down", "scroll_detail_down", "scroll details", show=False),
     ]
     can_focus = True
+
+    DEFAULT_CSS = """
+    LinearPanel > #body { max-width: 120; }
+    """
 
     def __init__(self) -> None:
         super().__init__()
@@ -186,54 +270,63 @@ class LinearPanel(SplitDetailPanel):
         return tuple(ordered_issues)
 
     def ready_text(self) -> str:
-        return self.render_ready().plain.strip()
+        console = Console(width=80, file=io.StringIO(), force_terminal=False)
+        with console.capture() as capture:
+            console.print(self.render_ready())
+        return capture.get().strip()
 
-    def render_ready(self) -> Text:
+    def render_ready(self) -> RenderableType:
         issues = self._grouped()
         cursor = self._clamped_cursor(len(issues))
+        if issues:
+            selected = issues[cursor]
+        else:
+            selected = None
         colors = self.status_colors()
-        # One width for the whole list; a per-group width would shift the title column at every
-        # group boundary.
+        accent = accent_for_background(self._terminal_background())
+        # One width for the whole list, so the title column never shifts at a group boundary.
         id_width = max((len(issue.id) for issue in issues), default=0)
-        lines: list[Text] = []
-        current_status = ""
-        for index, issue in enumerate(issues):
-            if issue.status != current_status:
-                current_status = issue.status
-                style = _status_style(issue.status, issue.status_type, colors)
-                lines.append(Text(current_status, style=style))
-            lines.append(self._format_row(issue, index == cursor, id_width, colors))
-        body = Text("\n").join(lines)
-        # One row per issue: a wrapped title orphans its tail under the id column and breaks
-        # the grid. The full title is one "o" away.
-        body.no_wrap = True
-        body.overflow = "ellipsis"
-        return body
+        parts: list[RenderableType] = []
+        for index, (status, status_type, members) in enumerate(_status_groups(issues)):
+            if index > 0:
+                parts.append(Text())
+            title = _format_card_title(status, status_type, len(members), colors)
+            body: list[RenderableType] = []
+            for issue in members:
+                if body:
+                    body.append(Text())
+                head, meta = self._format_cell(issue, issue is selected, id_width, colors, accent)
+                body.append(head)
+                body.append(meta)
+            parts.append(format_card(title, body))
+        return Group(*parts)
 
-    def _format_row(
-        self, issue: Issue, selected: bool, id_width: int, colors: StatusColors
-    ) -> Text:
-        if selected:
-            row = Text(style="bold")
-            marker = f"{_SELECTED_MARK} "
-        else:
-            row = Text()
-            marker = "  "
-        row.append(marker)
-
+    def _format_cell(
+        self, issue: Issue, selected: bool, id_width: int, colors: StatusColors, accent: str
+    ) -> tuple[Text, Text]:
+        """The issue's two lines: marks, priority, id, disc, and title, then its dim meta."""
+        head = Text()
         changed = self.seen.is_changed(self.integration_id, issue)
-        if changed:
-            mark_char = _CHANGED_MARK
-            mark_style = colors.green
+        head.append_text(_format_marks(selected, changed, accent))
+        head.append(" ")
+        stage_color = _status_color(issue.status, issue.status_type, colors)
+        priority = _format_priority(issue.priority, colors, stage_color)
+        head.append_text(priority)
+        head.append(" " * (_PRIORITY_WIDTH - len(priority.plain) + 1))
+        head.append(issue.id.ljust(id_width), style="dim")
+        head.append(" ")
+        disc = _status_disc(issue.status, issue.status_type)
+        head.append(disc, style=stage_color)
+        head.append(" ")
+        if selected:
+            head.append(issue.title, style="bold")
         else:
-            mark_char = " "
-            mark_style = None
-        row.append(mark_char, style=mark_style)
-        row.append(" ")
-        row.append(issue.id.ljust(id_width), style="dim")
-        row.append("  ")
-        glyph, glyph_style = _priority_glyph(issue.priority, colors)
-        row.append(glyph, style=glyph_style)
-        row.append(" ")
-        row.append(issue.title)
-        return row
+            head.append(issue.title)
+        head.no_wrap = True
+        head.overflow = "ellipsis"
+
+        meta = Text(_META_INDENT)
+        meta.append_text(_format_row_meta(issue))
+        meta.no_wrap = True
+        meta.overflow = "ellipsis"
+        return head, meta
