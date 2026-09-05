@@ -8,6 +8,7 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 from rich.console import Console, Group, RenderableType
+from rich.table import Table
 from rich.text import Text
 from textual import events
 from textual.app import ComposeResult, RenderResult
@@ -18,6 +19,7 @@ from textual.widgets import Static
 from smorg.auth.store import now
 from smorg.core.contract import Newest
 from smorg.integrations.linear.glyphs import format_priority, status_color, status_disc
+from smorg.integrations.linear.navigation import Target, Visit, format_trail, targets_of
 from smorg.integrations.linear.palette import accent_for_background
 from smorg.integrations.linear.source import (
     Comment,
@@ -27,16 +29,18 @@ from smorg.integrations.linear.source import (
     SubIssue,
     Transition,
 )
+from smorg.integrations.linear.views.pickers import open_from_picker, trail_picker
 from smorg.shell.cards import CARD_TITLE_STYLE, format_box, format_card
 from smorg.shell.format import age, format_hidden_line
 from smorg.shell.markdown import Markdown
-from smorg.shell.panel import ScrollGutter
+from smorg.shell.panel import GutteredScroll
 from smorg.shell.terminal_palette import StatusColors
 
 if TYPE_CHECKING:
     from smorg.integrations.linear.panel import LinearPanel
 
-_BACK_HINT = "‹ esc — issues"
+_BACK_HINT_ROOT = "‹ esc — issues"
+_BACK_HINT_GAP = 3
 NARROW_BELOW = 90
 SIDEBAR_WIDTH = 34
 ACTIVITY_LIMIT = 8
@@ -56,12 +60,15 @@ _Event = Comment | Transition
 
 
 def _format_header(
-    issue: Issue, detail: IssueDetail | None, colors: StatusColors
+    issue: Issue, detail: IssueDetail | None, colors: StatusColors, accent: str
 ) -> list[RenderableType]:
     reference = Text(style="dim")
     reference.append(issue.id)
-    if issue.team:
-        reference.append(f" · {issue.team}")
+    team = issue.team
+    if detail is not None and detail.team:
+        team = detail.team
+    if team:
+        reference.append(f" · {team}")
     title = Text(issue.title, style="bold")
     lines: list[RenderableType] = [reference, title]
     if detail is not None and detail.parent is not None:
@@ -69,7 +76,7 @@ def _format_header(
         line = Text()
         line.append("Sub-issue of ", style="dim")
         disc = status_disc(parent.status, parent.status_type)
-        line.append(disc, style=status_color(parent.status, parent.status_type, colors))
+        line.append(disc, style=status_color(parent.status, parent.status_type, colors, accent))
         line.append(" ")
         line.append(parent.id, style="dim")
         line.append(" ")
@@ -104,14 +111,24 @@ def _format_row(glyph: str, glyph_style: str, value: str, value_style: str = "")
 def _format_properties(
     issue: Issue, detail: IssueDetail | None, colors: StatusColors, accent: str
 ) -> list[Text]:
-    stage_color = status_color(issue.status, issue.status_type, colors)
-    disc = status_disc(issue.status, issue.status_type)
-    rows = [_format_row(disc, stage_color, issue.status)]
-    if issue.priority and issue.priority != "No priority":
-        priority = format_priority(issue.priority, colors, stage_color)
-        priority.append(" ")
-        priority.append(issue.priority)
-        rows.append(_truncating(priority))
+    status = issue.status
+    status_type = issue.status_type
+    priority = issue.priority
+    if detail is not None:
+        status = detail.status
+        status_type = detail.status_type
+        priority = detail.priority
+    stage_color = status_color(status, status_type, colors, accent)
+    disc = status_disc(status, status_type)
+    if status:
+        rows = [_format_row(disc, stage_color, status)]
+    else:
+        rows = [_format_row("◌", "dim", "loading…", "dim")]
+    if priority and priority != "No priority":
+        priority_row = format_priority(priority, colors, stage_color)
+        priority_row.append(" ")
+        priority_row.append(priority)
+        rows.append(_truncating(priority_row))
     if detail is None:
         return rows
     if detail.assignee:
@@ -205,20 +222,21 @@ def _format_description_card(detail: IssueDetail, accent: str) -> RenderableType
     return format_card(Text("description", style=f"{CARD_TITLE_STYLE} {accent}"), [body])
 
 
-def _format_sub_issue_row(child: SubIssue, colors: StatusColors) -> Text:
+def _format_sub_issue_row(child: SubIssue, colors: StatusColors, accent: str) -> Text:
     done = child.status_type == "completed"
     row = Text()
     disc = status_disc(child.status, child.status_type)
-    row.append(disc, style=status_color(child.status, child.status_type, colors))
+    row.append(disc, style=status_color(child.status, child.status_type, colors, accent))
     row.append(" ")
     if child.url:
         row.append(child.id, style=f"dim link {child.url}")
     else:
         row.append(child.id, style="dim")
     row.append("  ")
-    row.append(child.title)
     if done:
-        row.stylize("dim")
+        row.append(child.title, style="dim")
+    else:
+        row.append(child.title)
     return _truncating(row)
 
 
@@ -231,7 +249,7 @@ def _format_sub_issues_card(
     )
     rows: list[RenderableType] = []
     for child in detail.sub_issues:
-        rows.append(_format_sub_issue_row(child, colors))
+        rows.append(_format_sub_issue_row(child, colors, accent))
     return format_card(title, rows)
 
 
@@ -254,11 +272,11 @@ def _activity_events(detail: IssueDetail) -> tuple[list[_Event], int, bool]:
 
 
 def _format_transition(
-    step: Transition, is_creation: bool, creator: str, colors: StatusColors
+    step: Transition, is_creation: bool, creator: str, colors: StatusColors, accent: str
 ) -> Text:
     line = Text()
     disc = status_disc(step.status, step.status_type)
-    line.append(disc, style=status_color(step.status, step.status_type, colors))
+    line.append(disc, style=status_color(step.status, step.status_type, colors, accent))
     line.append(" ")
     if is_creation:
         line.append("created in ", style="dim")
@@ -299,7 +317,9 @@ def _format_activity_card(detail: IssueDetail, colors: StatusColors, accent: str
         if body:
             body.append(Text())
         if isinstance(event, Transition):
-            body.append(_format_transition(event, event is creation, detail.creator, colors))
+            body.append(
+                _format_transition(event, event is creation, detail.creator, colors, accent)
+            )
         else:
             body.extend(_format_comment(event))
     return format_card(Text("activity", style=f"{CARD_TITLE_STYLE} {accent}"), body)
@@ -391,28 +411,29 @@ class _SidebarBody(Static):
 
 class LinearIssueView(Horizontal):
     BINDINGS = [
+        Binding("enter", "open_from_here", "open from here", show=False),
+        Binding("backspace", "show_trail", "back to…", show=False),
         Binding("o", "open_in_linear", "open in Linear", show=False),
-        Binding("escape", "back_to_issues", "back to issues", show=False),
+        Binding("escape", "back", "back", show=False),
     ]
 
     DEFAULT_CSS = f"""
     LinearIssueView {{ max-width: 120; }}
-    LinearIssueView > #reading {{ width: 1fr; scrollbar-size-vertical: 0; }}
-    LinearIssueView > #sidebar {{
-        dock: right; width: {SIDEBAR_WIDTH}; scrollbar-size-vertical: 0;
-    }}
+    LinearIssueView > #reading {{ width: 1fr; }}
+    LinearIssueView > #sidebar {{ dock: right; width: {SIDEBAR_WIDTH}; }}
     """
 
     def __init__(self, panel: LinearPanel) -> None:
         super().__init__()
         self.panel = panel
         self.narrow = False
+        self.picker_cursor = 0
 
     def compose(self) -> ComposeResult:
-        reading = VerticalScroll(_ReadingBody(self), ScrollGutter(), id="reading")
+        reading = GutteredScroll(_ReadingBody(self), id="reading")
         reading.can_focus = True
         yield reading
-        sidebar = VerticalScroll(_SidebarBody(self), id="sidebar")
+        sidebar = GutteredScroll(_SidebarBody(self), id="sidebar")
         sidebar.can_focus = False
         yield sidebar
 
@@ -435,6 +456,32 @@ class LinearIssueView(Horizontal):
             return raw
         return None
 
+    def reading_scroll_y(self) -> int:
+        if not self.is_mounted:
+            return 0
+        return int(self.query_one("#reading", VerticalScroll).scroll_offset.y)
+
+    def restore_view_state(self, visit: Visit) -> None:
+        self.picker_cursor = visit.picker_cursor
+        if not self.is_mounted:
+            return
+        reading = self.query_one("#reading", VerticalScroll)
+        reading.scroll_to(y=visit.scroll_y, animate=False)
+
+    def _back_hint(self) -> str:
+        ids = self.panel.trail_ids()
+        if len(ids) < 2:
+            return _BACK_HINT_ROOT
+        return f"‹ esc — {ids[-2]}"
+
+    def _budget(self) -> int:
+        if not self.is_mounted:
+            return 80
+        body = self.query_one(_ReadingBody)
+        if body.size.width > 0:
+            return body.size.width
+        return 80
+
     def _sync_columns(self) -> None:
         if not self.is_mounted:
             return
@@ -453,8 +500,8 @@ class LinearIssueView(Horizontal):
     ) -> RenderableType:
         colors = self.panel.status_colors()
         accent = accent_for_background(self.panel._terminal_background())
-        parts: list[RenderableType] = [Text(_BACK_HINT, style="dim"), Text()]
-        parts.extend(_format_header(issue, detail, colors))
+        parts: list[RenderableType] = [*self._format_trail_lines(narrow), Text()]
+        parts.extend(_format_header(issue, detail, colors, accent))
         if narrow:
             parts.extend(_format_compact_header(issue, detail, colors, accent))
         parts.append(Text())
@@ -479,6 +526,20 @@ class LinearIssueView(Horizontal):
                 parts.append(card)
         return Group(*parts)
 
+    def _format_trail_lines(self, narrow: bool) -> list[RenderableType]:
+        hint = Text(self._back_hint(), style="dim")
+        ids = self.panel.trail_ids()
+        if narrow:
+            trail = format_trail(ids, self._budget())
+            return [hint, trail]
+        budget = self._budget() - len(hint.plain) - _BACK_HINT_GAP
+        trail = format_trail(ids, budget)
+        line = Table.grid(expand=True)
+        line.add_column(no_wrap=True)
+        line.add_column(justify="right", no_wrap=True, overflow="ellipsis")
+        line.add_row(hint, trail)
+        return [line]
+
     def render_sidebar(self, issue: Issue, detail: IssueDetail | None) -> RenderableType:
         colors = self.panel.status_colors()
         accent = accent_for_background(self.panel._terminal_background())
@@ -495,7 +556,7 @@ class LinearIssueView(Horizontal):
         issue = self.panel.viewed
         if issue is None:
             return []
-        console = Console(width=80, file=io.StringIO(), force_terminal=False)
+        console = Console(width=self._budget(), file=io.StringIO(), force_terminal=False)
         with console.capture() as capture:
             console.print(self.render_reading(issue, self.detail(), self.narrow))
             if not self.narrow:
@@ -508,5 +569,45 @@ class LinearIssueView(Horizontal):
             return
         webbrowser.open(issue.url)
 
-    def action_back_to_issues(self) -> None:
-        self.panel.close_issue()
+    def action_open_from_here(self) -> None:
+        issue = self.panel.viewed
+        if issue is None:
+            return
+        detail = self.detail()
+        if detail is None:
+            if self.panel.detail_error_for(issue) is not None:
+                self.panel.notify("could not load")
+            else:
+                self.panel.notify("still loading")
+            return
+        sections = targets_of(detail)
+        if not sections:
+            self.panel.notify("nothing to open from here")
+            return
+        colors = self.panel.status_colors()
+        accent = accent_for_background(self.panel._terminal_background())
+        picker = open_from_picker(issue.id, sections, colors, accent, self.picker_cursor)
+
+        def picked(value: object | None) -> None:
+            self.picker_cursor = picker.cursor
+            if isinstance(value, Target):
+                self.panel.open_target(value)
+
+        self.app.push_screen(picker, picked)
+
+    def action_show_trail(self) -> None:
+        colors = self.panel.status_colors()
+        accent = accent_for_background(self.panel._terminal_background())
+        picker = trail_picker(self.panel.trail.visits, colors, accent)
+        self.app.push_screen(picker, self._trail_picked)
+
+    def _trail_picked(self, value: object | None) -> None:
+        if not isinstance(value, int):
+            return
+        last = len(self.panel.trail.visits) - 1
+        if value == last:
+            return
+        self.panel.go_back_to(value)
+
+    def action_back(self) -> None:
+        self.panel.go_back()

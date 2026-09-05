@@ -11,7 +11,6 @@ from rich.panel import Panel as Card
 from rich.text import Text
 from textual.app import ComposeResult, RenderResult
 from textual.binding import Binding
-from textual.containers import VerticalScroll
 from textual.widgets import Static
 
 from smorg.core.contract import Newest
@@ -29,7 +28,7 @@ from smorg.integrations.github.source import (
 from smorg.shell.cards import CARD_TITLE_STYLE, format_card, format_count
 from smorg.shell.format import age, format_hidden_line
 from smorg.shell.markdown import Markdown
-from smorg.shell.panel import ScrollGutter
+from smorg.shell.panel import GutteredScroll, ScrollGutter
 from smorg.shell.terminal_palette import StatusColors
 
 if TYPE_CHECKING:
@@ -263,7 +262,7 @@ class _PullRequestBody(Static):
         return self._view.render_view(pr)
 
 
-class GitHubPullRequestView(VerticalScroll):
+class GitHubPullRequestView(GutteredScroll):
     BINDINGS = [
         Binding("o", "open_in_github", "open in GitHub", show=False),
         Binding("enter", "view_diff", "view the diff", show=False),
@@ -271,10 +270,7 @@ class GitHubPullRequestView(VerticalScroll):
     ]
 
     DEFAULT_CSS = """
-    GitHubPullRequestView {
-        align-horizontal: center;
-        scrollbar-size-vertical: 0;
-    }
+    GitHubPullRequestView { align-horizontal: center; }
     GitHubPullRequestView > #pull-request-body { width: 100%; max-width: 120; }
     """
 
@@ -284,7 +280,7 @@ class GitHubPullRequestView(VerticalScroll):
 
     def compose(self) -> ComposeResult:
         yield _PullRequestBody(self)
-        yield ScrollGutter()
+        yield from super().compose()
         yield GitHubLoading("loading the pull request", id="pull-request-loading")
 
     def on_mount(self) -> None:

@@ -7,6 +7,7 @@ import pytest
 from textual.containers import VerticalScroll
 
 from smorg.core.contract import Newest
+from smorg.integrations.linear.palette import accent_for_background
 from smorg.integrations.linear.panel import LinearPanel
 from smorg.integrations.linear.source import (
     Comment,
@@ -30,8 +31,8 @@ from .helpers import NOW, PanelHarness, detail, issue, panel_with
 
 def view_showing(shown=None, error: str | None = None, narrow: bool = False) -> LinearIssueView:
     panel = panel_with(issue("ENG-1"))
-    panel.viewed = issue("ENG-1")
-    key = LinearPanel.detail_key(panel.viewed)
+    panel.trail.push(issue("ENG-1"))
+    key = LinearPanel.detail_key(issue("ENG-1"))
     if shown is not None:
         panel.show_detail(key, shown)
     if error is not None:
@@ -127,7 +128,7 @@ def test_a_sub_issue_row_links_its_id_to_the_issue_when_it_has_a_url():
         priority="",
         url="https://linear.app/x/issue/ENG-2",
     )
-    row = _format_sub_issue_row(child, colors)
+    row = _format_sub_issue_row(child, colors, accent_for_background(None))
     link_spans = [span for span in row.spans if "link " in str(span.style)]
     assert len(link_spans) == 1
     assert row.plain[link_spans[0].start : link_spans[0].end] == "ENG-2"
@@ -266,3 +267,12 @@ async def test_a_hostile_description_and_title_never_reach_rich_markup(monkeypat
         rendered_lines = "".join(body.render_line(y).text for y in range(body.size.height))
     assert "[red]x[/red]" in rendered_lines
     assert "[blue]Weird[/blue]" in rendered_lines
+
+
+def test_the_header_prefers_the_detail_s_own_status_priority_and_team():
+    loaded = detail(status="Done", status_type="completed", priority="Low", team="Platform")
+    text = rendered(view_showing(loaded))
+    assert "ENG-1 · Platform" in text
+    assert "● Done" in text
+    assert "▂▄▆ Low" in text
+    assert "◕ In Review" not in text

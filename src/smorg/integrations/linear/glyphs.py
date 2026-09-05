@@ -38,7 +38,7 @@ def status_disc(status: str, status_type: str) -> str:
     return DISC_TODO
 
 
-def status_color(status: str, status_type: str, colors: StatusColors) -> str:
+def status_color(status: str, status_type: str, colors: StatusColors, accent: str) -> str:
     normalized = status.casefold()
     if normalized == "in progress":
         return colors.yellow
@@ -50,6 +50,8 @@ def status_color(status: str, status_type: str, colors: StatusColors) -> str:
         return colors.red
     if status_type == "started":
         return colors.yellow
+    if status_type == "completed":
+        return accent
     return "dim"
 
 

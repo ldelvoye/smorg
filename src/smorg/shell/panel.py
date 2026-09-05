@@ -68,7 +68,7 @@ class ScrollGutter(Static):
     """1-width ↑/↓ column docked to the right of a scroll container."""
 
     DEFAULT_CSS = """
-    ScrollGutter { dock: right; width: 1; height: 1fr; }
+    ScrollGutter { dock: right; width: 1; height: 100%; }
     """
 
     def __init__(self) -> None:
@@ -89,6 +89,17 @@ class ScrollGutter(Static):
         if not isinstance(region, VerticalScroll):
             return
         self.update(_format_gutter(region.scroll_y, region.max_scroll_y, self.size.height))
+
+
+class GutteredScroll(VerticalScroll):
+    """A vertical scroll container whose position shows in a ScrollGutter, never a scrollbar."""
+
+    DEFAULT_CSS = """
+    GutteredScroll { scrollbar-size-vertical: 0; }
+    """
+
+    def compose(self) -> ComposeResult:
+        yield ScrollGutter()
 
 
 class Panel(Vertical):

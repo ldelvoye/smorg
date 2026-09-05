@@ -59,8 +59,10 @@ def _format_marks(selected: bool, changed: bool, accent: str) -> Text:
     return marks
 
 
-def _format_card_title(status: str, status_type: str, count: int, colors: StatusColors) -> Text:
-    color = status_color(status, status_type, colors)
+def _format_card_title(
+    status: str, status_type: str, count: int, colors: StatusColors, accent: str
+) -> Text:
+    color = status_color(status, status_type, colors, accent)
     if color == "dim":
         style = CARD_TITLE_STYLE
     else:
@@ -201,7 +203,7 @@ class LinearIssues(Vertical):
         for index, (status, status_type, members) in enumerate(_status_groups(issues)):
             if index > 0:
                 parts.append(Text())
-            title = _format_card_title(status, status_type, len(members), colors)
+            title = _format_card_title(status, status_type, len(members), colors, accent)
             body: list[RenderableType] = []
             for issue in members:
                 if body:
@@ -220,7 +222,7 @@ class LinearIssues(Vertical):
         changed = self.panel.seen.is_changed(self.panel.integration_id, issue)
         head.append_text(_format_marks(selected, changed, accent))
         head.append(" ")
-        stage_color = status_color(issue.status, issue.status_type, colors)
+        stage_color = status_color(issue.status, issue.status_type, colors, accent)
         priority = format_priority(issue.priority, colors, stage_color)
         head.append_text(priority)
         head.append(" " * (PRIORITY_WIDTH - len(priority.plain) + 1))
