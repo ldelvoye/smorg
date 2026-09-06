@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-
 from textual.app import ComposeResult
 
 from smorg.core.contract import Item
@@ -24,16 +22,23 @@ from smorg.integrations.github.views.inbox import GitHubInbox
 from smorg.integrations.github.views.menu import GitHubMenu
 from smorg.integrations.github.views.pull_request import GitHubPullRequestView
 from smorg.integrations.github.views.pushed import GitHubPushedBranches
-from smorg.shell.panel import Panel, PanelState
+from smorg.shell.panel import PanelState
+from smorg.shell.view_host import HostedView, ViewHostPanel
+
+_VIEW_CLASSES: dict[GitHubView, type[HostedView]] = {
+    GitHubView.MENU: GitHubMenu,
+    GitHubView.INBOX: GitHubInbox,
+    GitHubView.PULL_REQUEST: GitHubPullRequestView,
+    GitHubView.DIFF: GitHubDiffView,
+    GitHubView.PUSHED_BRANCHES: GitHubPushedBranches,
+}
 
 
-class GitHubPanel(Panel):
-    can_focus = False
+class GitHubPanel(ViewHostPanel[GitHubView]):
     refresh_indicator_class = GitHubRefreshIndicator
 
     def __init__(self) -> None:
-        super().__init__()
-        self.active_view = GitHubView.MENU
+        super().__init__(GitHubView.MENU)
         self.viewed: PullRequest | None = None
         self.viewed_diff: DiffRequest | None = None
 
@@ -45,8 +50,19 @@ class GitHubPanel(Panel):
         yield GitHubDiffView(self)
         yield GitHubPushedBranches(self)
 
-    def on_mount(self) -> None:
-        self._sync_view_display()
+    def view_classes(self) -> dict[GitHubView, type[HostedView]]:
+        return _VIEW_CLASSES
+
+    def views_shown(self) -> bool:
+        return self.state is not PanelState.LOADING
+
+    def _sync_view_display(self) -> None:
+        is_loading = self.state is PanelState.LOADING
+        # Focusable only during the loading takeover; at any other time it would sit in the tab
+        # order as a bindingless focus stop.
+        self.can_focus = is_loading
+        self._loading().display = is_loading
+        super()._sync_view_display()
 
     def show_fetch_phase(self, label: str) -> None:
         if self.state is not PanelState.LOADING or not self.is_mounted:
@@ -54,13 +70,6 @@ class GitHubPanel(Panel):
         loading = self._loading()
         loading.reason = f"fetching {label}"
         loading.refresh()
-
-    def show_view(self, view: GitHubView) -> None:
-        self.active_view = view
-        self._sync_view_display()
-        if self.state is not PanelState.LOADING:
-            self._active_view_widget().focus()
-        self.refresh()
 
     def open_pull_request(self, pr: PullRequest) -> None:
         """Show one pull request full screen; its detail loads while the header renders."""
@@ -86,84 +95,8 @@ class GitHubPanel(Panel):
         self.viewed_diff = None
         self.show_view(GitHubView.PULL_REQUEST)
 
-    def focus(self, scroll_visible: bool = True):
-        if self.state is PanelState.LOADING:
-            return super().focus(scroll_visible)
-        self._active_view_widget().focus(scroll_visible)
-        return self
-
-    def _active_view_widget(
-        self,
-    ) -> GitHubMenu | GitHubInbox | GitHubPullRequestView | GitHubDiffView | GitHubPushedBranches:
-        if self.active_view is GitHubView.MENU:
-            return self._menu()
-        if self.active_view is GitHubView.INBOX:
-            return self._inbox()
-        if self.active_view is GitHubView.PULL_REQUEST:
-            return self._pull_request()
-        if self.active_view is GitHubView.DIFF:
-            return self._diff_view()
-        return self._pushed_branches()
-
-    def _sync_view_display(self) -> None:
-        is_loading = self.state is PanelState.LOADING
-        # Focusable only during the loading takeover; at any other time it would sit in the tab
-        # order as a bindingless focus stop.
-        self.can_focus = is_loading
-        self._loading().display = is_loading
-        self._menu().display = not is_loading and self.active_view is GitHubView.MENU
-        self._inbox().display = not is_loading and self.active_view is GitHubView.INBOX
-        showing_pr = not is_loading and self.active_view is GitHubView.PULL_REQUEST
-        self._pull_request().display = showing_pr
-        showing_diff = not is_loading and self.active_view is GitHubView.DIFF
-        self._diff_view().display = showing_diff
-        showing_pushed = not is_loading and self.active_view is GitHubView.PUSHED_BRANCHES
-        self._pushed_branches().display = showing_pushed
-        if not is_loading and self.has_focus:
-            self._active_view_widget().focus()
-
     def _loading(self) -> GitHubLoading:
         return self.query_one("#loading", GitHubLoading)
-
-    def _menu(self) -> GitHubMenu:
-        return self.query_one(GitHubMenu)
-
-    def _inbox(self) -> GitHubInbox:
-        return self.query_one(GitHubInbox)
-
-    def _pull_request(self) -> GitHubPullRequestView:
-        return self.query_one(GitHubPullRequestView)
-
-    def _diff_view(self) -> GitHubDiffView:
-        return self.query_one(GitHubDiffView)
-
-    def _pushed_branches(self) -> GitHubPushedBranches:
-        return self.query_one(GitHubPushedBranches)
-
-    def refresh(
-        self, *regions, repaint: bool = True, layout: bool = False, recompose: bool = False
-    ):
-        # Each view repaints its own way: the menu is a Static refreshed directly below, the
-        # inbox's body rides the base Panel.refresh's #body query in super().refresh(), and the
-        # pull request and pushed-branches views repaint their own children in refresh_content().
-        if self.is_mounted:
-            self._sync_view_display()
-            self._menu().refresh(repaint=repaint, layout=layout)
-            self._pull_request().refresh_content()
-            self._diff_view().refresh_content()
-            self._pushed_branches().refresh_content()
-        return super().refresh(*regions, repaint=repaint, layout=layout, recompose=recompose)
-
-    def help_bindings(self) -> Iterable[object]:
-        if self.active_view is GitHubView.MENU:
-            return GitHubMenu.BINDINGS
-        if self.active_view is GitHubView.INBOX:
-            return GitHubInbox.BINDINGS
-        if self.active_view is GitHubView.PULL_REQUEST:
-            return GitHubPullRequestView.BINDINGS
-        if self.active_view is GitHubView.DIFF:
-            return GitHubDiffView.BINDINGS
-        return GitHubPushedBranches.BINDINGS
 
     def pull_requests(self) -> tuple[PullRequest, ...]:
         prs = [item for item in self.items if isinstance(item, PullRequest)]
@@ -226,10 +159,10 @@ class GitHubPanel(Panel):
         if self.active_view is GitHubView.PUSHED_BRANCHES:
             if not self.is_mounted:
                 return None
-            return self._pushed_branches().selected_branch()
+            return self.query_one(GitHubPushedBranches).selected_branch()
         if not self.is_mounted:
             return None
-        return self._inbox().selected_item()
+        return self.query_one(GitHubInbox).selected_item()
 
     def detail_keys_in_use(self) -> set[tuple[str, str]]:
         """The open pull request's cache key survives pruning while it is on screen."""
@@ -239,16 +172,3 @@ class GitHubPanel(Panel):
         if self.viewed_diff is not None:
             keys.add(self.detail_key(self.viewed_diff))
         return keys
-
-    def ready_text(self) -> str:
-        if not self.is_mounted:
-            return super().ready_text()
-        if self.active_view is GitHubView.MENU:
-            return "\n".join(self._menu().content_lines())
-        if self.active_view is GitHubView.INBOX:
-            return "\n".join(self._inbox().content_lines())
-        if self.active_view is GitHubView.PULL_REQUEST:
-            return "\n".join(self._pull_request().content_lines())
-        if self.active_view is GitHubView.DIFF:
-            return "\n".join(self._diff_view().content_lines())
-        return "\n".join(self._pushed_branches().content_lines())

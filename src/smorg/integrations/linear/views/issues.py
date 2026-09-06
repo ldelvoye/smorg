@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import io
 import webbrowser
 from typing import TYPE_CHECKING
 
-from rich.console import Console, Group, RenderableType
+from rich.console import Group, RenderableType
 from rich.text import Text
-from textual.app import ComposeResult, RenderResult
+from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.widgets import Static
@@ -21,10 +20,12 @@ from smorg.integrations.linear.glyphs import (
 )
 from smorg.integrations.linear.palette import accent_for_background
 from smorg.integrations.linear.source import Issue
-from smorg.shell.cards import CARD_TITLE_STYLE, CHANGED_MARK, SELECTED_MARK, format_card
-from smorg.shell.format import age
-from smorg.shell.panel import PanelState
+from smorg.shell.cards import format_card, format_card_title, format_marks
+from smorg.shell.cursor import clamp_cursor, step_cursor
+from smorg.shell.format import age, plain_lines, truncating
+from smorg.shell.panel import PanelState, ViewBody
 from smorg.shell.terminal_palette import StatusColors
+from smorg.shell.view_host import HostedView
 
 if TYPE_CHECKING:
     from smorg.integrations.linear.panel import LinearPanel
@@ -45,30 +46,16 @@ def _status_rank(status: str, status_type: str) -> int:
     return 4
 
 
-def _format_marks(selected: bool, changed: bool, accent: str) -> Text:
-    marks = Text()
-    if selected:
-        marks.append(SELECTED_MARK, style="bold")
-    else:
-        marks.append(" ")
-    marks.append(" ")
-    if changed:
-        marks.append(CHANGED_MARK, style=accent)
-    else:
-        marks.append(" ")
-    return marks
-
-
-def _format_card_title(
+def _format_group_title(
     status: str, status_type: str, count: int, colors: StatusColors, accent: str
 ) -> Text:
     color = status_color(status, status_type, colors, accent)
-    if color == "dim":
-        style = CARD_TITLE_STYLE
-    else:
-        style = f"{CARD_TITLE_STYLE} {color}"
     disc = status_disc(status, status_type)
-    return Text(f"{disc} {status} ({count})", style=style)
+    if color == "dim":
+        tint = ""
+    else:
+        tint = color
+    return format_card_title(f"{disc} {status} ({count})", tint)
 
 
 def _format_row_meta(issue: Issue) -> Text:
@@ -94,23 +81,7 @@ def _status_groups(issues: tuple[Issue, ...]) -> list[tuple[str, str, list[Issue
     return groups
 
 
-class _IssuesBody(Static):
-    """Draws the list's cards and state text; owns no state of its own."""
-
-    def __init__(self, view: LinearIssues) -> None:
-        # markup off: rows carry server-controlled text, so a hostile title can't style,
-        # hide, or garble the list via Rich markup.
-        super().__init__(markup=False, id="body")
-        self._view = view
-
-    def render(self) -> RenderResult:
-        panel = self._view.panel
-        if panel.state is PanelState.READY:
-            return self._view.render_view()
-        return panel.body_text()
-
-
-class LinearIssues(Vertical):
+class LinearIssues(Vertical, HostedView):
     BINDINGS = [
         Binding("up", "cursor_up", "select issue", show=False),
         Binding("down", "cursor_down", "select issue", show=False),
@@ -130,13 +101,24 @@ class LinearIssues(Vertical):
         self.cursor = 0
 
     def compose(self) -> ComposeResult:
-        yield _IssuesBody(self)
+        yield ViewBody(self._render_body, id="body")
+
+    def _render_body(self) -> RenderableType:
+        if self.panel.state is PanelState.READY:
+            return self.render_view()
+        return self.panel.body_text()
+
+    def refresh_content(self) -> None:
+        if not self.is_mounted:
+            return
+        self.query_one("#body", Static).refresh()
 
     def selected_item(self) -> Issue | None:
         issues = self._grouped()
         if not issues:
             return None
-        return issues[self._clamped_cursor(len(issues))]
+        index = clamp_cursor(self.cursor, len(issues))
+        return issues[index]
 
     def selected_url(self) -> str | None:
         issue = self.selected_item()
@@ -163,16 +145,11 @@ class LinearIssues(Vertical):
             ordered_issues.extend(groups[status])
         return tuple(ordered_issues)
 
-    def _clamped_cursor(self, count: int) -> int:
-        if count == 0:
-            return 0
-        return min(self.cursor, count - 1)
-
     def _move(self, offset: int) -> None:
         issues = self._grouped()
         if not issues:
             return
-        self.cursor = (self._clamped_cursor(len(issues)) + offset) % len(issues)
+        self.cursor = step_cursor(self.cursor, offset, len(issues))
         self.panel.refresh()
 
     def action_cursor_down(self) -> None:
@@ -190,7 +167,7 @@ class LinearIssues(Vertical):
 
     def render_view(self) -> RenderableType:
         issues = self._grouped()
-        cursor = self._clamped_cursor(len(issues))
+        cursor = clamp_cursor(self.cursor, len(issues))
         if issues:
             selected = issues[cursor]
         else:
@@ -203,7 +180,7 @@ class LinearIssues(Vertical):
         for index, (status, status_type, members) in enumerate(_status_groups(issues)):
             if index > 0:
                 parts.append(Text())
-            title = _format_card_title(status, status_type, len(members), colors, accent)
+            title = _format_group_title(status, status_type, len(members), colors, accent)
             body: list[RenderableType] = []
             for issue in members:
                 if body:
@@ -220,7 +197,7 @@ class LinearIssues(Vertical):
         """The issue's two lines: marks, priority, id, disc, and title, then its dim meta."""
         head = Text()
         changed = self.panel.seen.is_changed(self.panel.integration_id, issue)
-        head.append_text(_format_marks(selected, changed, accent))
+        head.append_text(format_marks(selected, changed, accent))
         head.append(" ")
         stage_color = status_color(issue.status, issue.status_type, colors, accent)
         priority = format_priority(issue.priority, colors, stage_color)
@@ -235,21 +212,14 @@ class LinearIssues(Vertical):
             head.append(issue.title, style="bold")
         else:
             head.append(issue.title)
-        head.no_wrap = True
-        head.overflow = "ellipsis"
 
         meta = Text(_META_INDENT)
         meta.append_text(_format_row_meta(issue))
-        meta.no_wrap = True
-        meta.overflow = "ellipsis"
-        return head, meta
+        return truncating(head), truncating(meta)
 
     def content_lines(self) -> list[str]:
         """render_view flattened to plain text, so the two cannot drift apart."""
-        console = Console(width=80, file=io.StringIO(), force_terminal=False)
-        with console.capture() as capture:
-            console.print(self.render_view())
-        return capture.get().splitlines()
+        return plain_lines(self.render_view())
 
     def action_open_issue(self) -> None:
         issue = self.selected_item()

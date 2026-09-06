@@ -7,7 +7,7 @@ else.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from enum import StrEnum
 from typing import ClassVar
@@ -49,19 +49,17 @@ def _format_gutter(scroll_y: float, max_scroll_y: float, height: int) -> Text:
     return Text("\n".join(lines), style="dim")
 
 
-class _PanelBody(Static):
-    """Draws the panel's list and state text; owns no state of its own."""
+class ViewBody(Static):
+    """A Static that draws whatever `draw` returns and owns no state of its own. Markup stays off
+    because the content carries server-controlled text.
+    """
 
-    def __init__(self, panel: Panel) -> None:
-        # markup off: message may carry server-controlled text, so a provider can't style, hide,
-        # or garble the panel via Rich markup.
-        super().__init__(markup=False, id="body")
-        self._panel = panel
+    def __init__(self, draw: Callable[[], RenderableType], id: str) -> None:
+        super().__init__(markup=False, id=id)
+        self._draw = draw
 
     def render(self) -> RenderResult:
-        if self._panel.state is PanelState.READY:
-            return self._panel.render_ready()
-        return self._panel.body_text()
+        return self._draw()
 
 
 class ScrollGutter(Static):
@@ -92,14 +90,21 @@ class ScrollGutter(Static):
 
 
 class GutteredScroll(VerticalScroll):
-    """A vertical scroll container whose position shows in a ScrollGutter, never a scrollbar."""
+    """A vertical scroll container whose position shows in a ScrollGutter, never a scrollbar.
+    Subclasses add their children in compose_content, so the gutter cannot be composed away.
+    """
 
     DEFAULT_CSS = """
     GutteredScroll { scrollbar-size-vertical: 0; }
     """
 
     def compose(self) -> ComposeResult:
+        yield from self.compose_content()
         yield ScrollGutter()
+
+    def compose_content(self) -> ComposeResult:
+        """The children a subclass composes before the gutter; the base has none."""
+        yield from ()
 
 
 class Panel(Vertical):
@@ -134,7 +139,12 @@ class Panel(Vertical):
         return type(self).BINDINGS
 
     def compose(self) -> ComposeResult:
-        yield _PanelBody(self)
+        yield ViewBody(self._render_body, id="body")
+
+    def _render_body(self) -> RenderableType:
+        if self.state is PanelState.READY:
+            return self.render_ready()
+        return self.body_text()
 
     def render_ready(self) -> RenderableType:
         """The tab's body in the READY state, for an integration to override."""
@@ -256,14 +266,22 @@ class Panel(Vertical):
         if self.state is PanelState.ERROR:
             return f"could not load: {self.message}"
         if self.state is PanelState.STALE:
-            stamp = self.as_of.strftime("%H:%M") if self.as_of else "earlier"
+            if self.as_of:
+                stamp = self.as_of.strftime("%H:%M")
+            else:
+                stamp = "earlier"
             return f"showing data as of {stamp} — {self.message}\n{self.ready_text()}"
         return self.ready_text()
 
     def refresh(
         self, *regions, repaint: bool = True, layout: bool = False, recompose: bool = False
     ):
-        # Repaints the body child, which caches its own render.
         if self.is_mounted:
-            self.query_one("#body", Static).refresh(repaint=repaint, layout=layout)
+            self._refresh_body(repaint, layout)
         return super().refresh(*regions, repaint=repaint, layout=layout, recompose=recompose)
+
+    def _refresh_body(self, repaint: bool, layout: bool) -> None:
+        """Repaint the body child, which caches its own render; hosts repaint their views
+        instead.
+        """
+        self.query_one("#body", Static).refresh(repaint=repaint, layout=layout)

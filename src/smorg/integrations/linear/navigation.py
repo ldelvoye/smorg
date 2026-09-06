@@ -1,13 +1,23 @@
-"""What a Linear issue page can open, the trail of pages visited, and the breadcrumb."""
+"""What a Linear issue page can open, the trail of pages visited, and how both are drawn."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
+from rich.cells import cell_len
 from rich.text import Text
 
-from smorg.integrations.linear.source import Issue, IssueDetail
+from smorg.integrations.linear.glyphs import DISC_BACKLOG, status_color, status_disc
+from smorg.integrations.linear.source import (
+    Issue,
+    IssueDetail,
+    ParentSummary,
+    RelatedIssue,
+    SubIssue,
+)
+from smorg.shell.format import truncating
+from smorg.shell.terminal_palette import StatusColors
 
 UNKNOWN_UPDATED_AT = datetime(1970, 1, 1, tzinfo=UTC)
 TRAIL_ROOT = "issues"
@@ -69,33 +79,57 @@ class Trail:
         self.visits[-1] = replace(self.visits[-1], scroll_y=scroll_y, picker_cursor=picker_cursor)
 
 
+def target_of_issue(issue: Issue) -> Target:
+    return Target(
+        id=issue.id,
+        title=issue.title,
+        status=issue.status,
+        status_type=issue.status_type,
+        priority=issue.priority,
+        url=issue.url,
+    )
+
+
+def target_of_parent(parent: ParentSummary) -> Target:
+    return Target(
+        id=parent.id,
+        title=parent.title,
+        status=parent.status,
+        status_type=parent.status_type,
+        priority="",
+        url=parent.url,
+    )
+
+
+def target_of_sub_issue(child: SubIssue) -> Target:
+    return Target(
+        id=child.id,
+        title=child.title,
+        status=child.status,
+        status_type=child.status_type,
+        priority=child.priority,
+        url=child.url,
+    )
+
+
+def target_of_relation(relation: RelatedIssue) -> Target:
+    return Target(
+        id=relation.id,
+        title=relation.title,
+        status="",
+        status_type="",
+        priority="",
+        url=relation.url,
+    )
+
+
 def targets_of(detail: IssueDetail) -> tuple[TargetSection, ...]:
     sections: list[TargetSection] = []
     if detail.parent is not None:
-        parent = detail.parent
-        parent_target = Target(
-            id=parent.id,
-            title=parent.title,
-            status=parent.status,
-            status_type=parent.status_type,
-            priority="",
-            url=parent.url,
-        )
-        sections.append(("parent", (parent_target,)))
+        sections.append(("parent", (target_of_parent(detail.parent),)))
     if detail.sub_issues:
         done = [child for child in detail.sub_issues if child.status_type == "completed"]
-        children: list[Target] = []
-        for child in detail.sub_issues:
-            children.append(
-                Target(
-                    id=child.id,
-                    title=child.title,
-                    status=child.status,
-                    status_type=child.status_type,
-                    priority=child.priority,
-                    url=child.url,
-                )
-            )
+        children = [target_of_sub_issue(child) for child in detail.sub_issues]
         sections.append((f"sub-issues ({len(done)}/{len(detail.sub_issues)})", tuple(children)))
     for heading, relations in (
         ("blocked by", detail.blocked_by),
@@ -104,18 +138,7 @@ def targets_of(detail: IssueDetail) -> tuple[TargetSection, ...]:
     ):
         if not relations:
             continue
-        targets: list[Target] = []
-        for relation in relations:
-            targets.append(
-                Target(
-                    id=relation.id,
-                    title=relation.title,
-                    status="",
-                    status_type="",
-                    priority="",
-                    url=relation.url,
-                )
-            )
+        targets = [target_of_relation(relation) for relation in relations]
         sections.append((f"{heading} ({len(relations)})", tuple(targets)))
     return tuple(sections)
 
@@ -151,17 +174,37 @@ def format_trail(ids: tuple[str, ...], budget: int, cap: int = BREADCRUMB_CAP) -
         if len(shown) >= cap:
             break
         candidate = _render(shown=[earlier, *shown], total=total, root=False, elided=True)
-        if len(candidate) > budget:
+        if cell_len(candidate) > budget:
             break
         shown.insert(0, earlier)
     all_shown = len(shown) == total
     with_root = _render(shown=shown, total=total, root=True, elided=not all_shown)
-    if len(with_root) <= budget:
+    if cell_len(with_root) <= budget:
         return Text(with_root, style="dim")
     without_root = _render(shown=shown, total=total, root=False, elided=True)
-    if len(without_root) <= budget:
+    if cell_len(without_root) <= budget:
         return Text(without_root, style="dim")
     return Text(f"{ids[-1]} ({total})", style="dim")
+
+
+def format_target_row(target: Target, colors: StatusColors, accent: str, dim_title: bool) -> Text:
+    row = Text()
+    if target.status:
+        disc = status_disc(target.status, target.status_type)
+        row.append(disc, style=status_color(target.status, target.status_type, colors, accent))
+    else:
+        row.append(DISC_BACKLOG, style="dim")
+    row.append(" ")
+    if target.url:
+        row.append(target.id, style=f"dim link {target.url}")
+    else:
+        row.append(target.id, style="dim")
+    row.append("  ")
+    if dim_title:
+        row.append(target.title, style="dim")
+    else:
+        row.append(target.title)
+    return truncating(row)
 
 
 def _render(shown: list[str], total: int, root: bool, elided: bool) -> str:

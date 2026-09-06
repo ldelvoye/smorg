@@ -1,6 +1,14 @@
 from datetime import UTC, datetime, timedelta
 
-from smorg.shell.format import age, merge_key_display, symbolize_key_display
+from rich.text import Text
+
+from smorg.shell.format import (
+    age,
+    merge_key_display,
+    plain_lines,
+    symbolize_key_display,
+    truncating,
+)
 
 NOW = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
 
@@ -45,3 +53,11 @@ def test_symbolize_expands_a_fused_caret_with_an_explicit_plus():
 
 def test_symbolize_maps_the_command_modifier_to_its_glyph():
     assert symbolize_key_display("super+k") == "⌘ + k"
+
+
+def test_plain_lines_keep_the_truncation_flags_of_a_bare_text():
+    long = truncating(Text("ENG-0 " + "x" * 200))
+    lines = plain_lines(long, width=40)
+    assert len(lines) == 1
+    assert lines[0].startswith("ENG-0")
+    assert lines[0].endswith("…")

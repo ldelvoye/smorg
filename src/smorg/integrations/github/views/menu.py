@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import io
 import webbrowser
 from typing import TYPE_CHECKING
 
 from rich import box
-from rich.console import Console, Group, RenderableType
+from rich.console import Group, RenderableType
 from rich.panel import Panel as Card
 from rich.text import Text
 from textual import events
@@ -18,8 +17,11 @@ from textual.widgets import Static
 from smorg.integrations.github.source import ABSENT_DAY, DAYS_PER_WEEK, ContributionWeek
 from smorg.integrations.github.views import GitHubView
 from smorg.shell.cards import CHANGED_MARK, SELECTED_MARK
+from smorg.shell.cursor import step_cursor
+from smorg.shell.format import plain_lines
 from smorg.shell.panel import PanelState
 from smorg.shell.terminal_palette import StatusColors
+from smorg.shell.view_host import HostedView
 
 if TYPE_CHECKING:
     from smorg.integrations.github.panel import GitHubPanel
@@ -166,7 +168,7 @@ def _fit_weeks(
     return weeks[-columns_that_fit:]
 
 
-class GitHubMenu(Static):
+class GitHubMenu(Static, HostedView):
     BINDINGS = [
         Binding("up", "previous_destination", "select destination", show=False),
         Binding("down", "next_destination", "select destination", show=False),
@@ -237,10 +239,10 @@ class GitHubMenu(Static):
 
     def content_lines(self) -> list[str]:
         """render_content flattened to plain text, so the two cannot drift apart."""
-        console = Console(width=80, file=io.StringIO(), force_terminal=False)
-        with console.capture() as capture:
-            console.print(self.render_content())
-        return capture.get().splitlines()
+        return plain_lines(self.render_content())
+
+    def refresh_content(self) -> None:
+        self.refresh()
 
     def action_previous_destination(self) -> None:
         self._move_destination(-1)
@@ -249,8 +251,7 @@ class GitHubMenu(Static):
         self._move_destination(1)
 
     def _move_destination(self, offset: int) -> None:
-        count = len(_DESTINATIONS)
-        self.destination_cursor = (self.destination_cursor + offset) % count
+        self.destination_cursor = step_cursor(self.destination_cursor, offset, len(_DESTINATIONS))
         self.refresh()
 
     def action_open_destination(self) -> None:

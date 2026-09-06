@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import io
 import webbrowser
 from typing import TYPE_CHECKING
 
-from rich.console import Console, Group, RenderableType
+from rich.console import Group, RenderableType
 from rich.panel import Panel as Card
 from rich.text import Text
-from textual.app import ComposeResult, RenderResult
+from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.widgets import Static
 
@@ -25,11 +24,12 @@ from smorg.integrations.github.source import (
     Reviewer,
     ReviewerState,
 )
-from smorg.shell.cards import CARD_TITLE_STYLE, format_card, format_count
-from smorg.shell.format import age, format_hidden_line
+from smorg.shell.cards import format_card, format_card_title, format_count
+from smorg.shell.format import age, format_hidden_line, plain_lines
 from smorg.shell.markdown import Markdown
-from smorg.shell.panel import GutteredScroll, ScrollGutter
+from smorg.shell.panel import GutteredScroll, ScrollGutter, ViewBody
 from smorg.shell.terminal_palette import StatusColors
+from smorg.shell.view_host import HostedView
 
 if TYPE_CHECKING:
     from smorg.integrations.github.panel import GitHubPanel
@@ -118,11 +118,11 @@ def _format_checks_card(checks: CheckSummary, colors: StatusColors) -> Card:
     if checks.truncated:
         label = f"{label} · …"
     if checks.failed:
-        title = Text(label, style=f"{CARD_TITLE_STYLE} {colors.red}")
+        title = format_card_title(label, colors.red)
     elif checks.running:
-        title = Text(label, style=f"{CARD_TITLE_STYLE} {colors.yellow}")
+        title = format_card_title(label, colors.yellow)
     else:
-        title = Text(label, style=f"{CARD_TITLE_STYLE} {colors.green}")
+        title = format_card_title(label, colors.green)
     body: list[RenderableType] = []
     for name in checks.failed_names:
         line = Text()
@@ -183,7 +183,7 @@ def _format_reviews_card(reviewers: tuple[Reviewer, ...], colors: StatusColors) 
     hidden = len(reviewers) - _MAX_REVIEWER_LINES
     if hidden > 0:
         body.append(Text(f"… {hidden} more reviewers", style="dim"))
-    title = Text(f"reviews ({len(reviewers)})", style=CARD_TITLE_STYLE)
+    title = format_card_title(f"reviews ({len(reviewers)})")
     return format_card(title, body)
 
 
@@ -195,7 +195,8 @@ def _format_description_card(detail: PullRequestDetail) -> Card:
     # Markdown() interprets its input as CommonMark, not Rich's own "[style]" markup, so a
     # hostile "[red]x[/red]" body can't style or hide anything.
     content = Markdown(body)
-    return format_card(Text("description", style=CARD_TITLE_STYLE), [content])
+    title = format_card_title("description")
+    return format_card(title, [content])
 
 
 def _format_comment_heading(comment: Comment) -> Text:
@@ -222,7 +223,7 @@ def _format_comments_card(comments: Newest[Comment]) -> Card:
         body.append(_format_comment_heading(comment))
         if comment.body:
             body.append(Markdown(comment.body))
-    title = Text(f"comments ({len(comments.items)})", style=CARD_TITLE_STYLE)
+    title = format_card_title(f"comments ({len(comments.items)})")
     return format_card(title, body)
 
 
@@ -242,27 +243,7 @@ def _format_sections(detail: PullRequestDetail, colors: StatusColors) -> list[Re
     return parts
 
 
-class _PullRequestBody(Static):
-    """Draws the pull request view's content; owns no state of its own."""
-
-    DEFAULT_CSS = """
-    _PullRequestBody { height: auto; }
-    """
-
-    def __init__(self, view: GitHubPullRequestView) -> None:
-        # markup off: titles and bodies carry server-controlled text, so a hostile value
-        # can't style, hide, or garble the view via Rich markup.
-        super().__init__(markup=False, id="pull-request-body")
-        self._view = view
-
-    def render(self) -> RenderResult:
-        pr = self._view.panel.viewed
-        if pr is None:
-            return Text()
-        return self._view.render_view(pr)
-
-
-class GitHubPullRequestView(GutteredScroll):
+class GitHubPullRequestView(GutteredScroll, HostedView):
     BINDINGS = [
         Binding("o", "open_in_github", "open in GitHub", show=False),
         Binding("enter", "view_diff", "view the diff", show=False),
@@ -271,17 +252,22 @@ class GitHubPullRequestView(GutteredScroll):
 
     DEFAULT_CSS = """
     GitHubPullRequestView { align-horizontal: center; }
-    GitHubPullRequestView > #pull-request-body { width: 100%; max-width: 120; }
+    GitHubPullRequestView > #pull-request-body { width: 100%; max-width: 120; height: auto; }
     """
 
     def __init__(self, panel: GitHubPanel) -> None:
         super().__init__()
         self.panel = panel
 
-    def compose(self) -> ComposeResult:
-        yield _PullRequestBody(self)
-        yield from super().compose()
+    def compose_content(self) -> ComposeResult:
+        yield ViewBody(self._render_body, id="pull-request-body")
         yield GitHubLoading("loading the pull request", id="pull-request-loading")
+
+    def _render_body(self) -> RenderableType:
+        pr = self.panel.viewed
+        if pr is None:
+            return Text()
+        return self.render_view(pr)
 
     def on_mount(self) -> None:
         self.refresh_content()
@@ -296,7 +282,7 @@ class GitHubPullRequestView(GutteredScroll):
             loading = self.panel.is_detail_pending(pr)
         self.query_one("#pull-request-loading", GitHubLoading).display = loading
         self.query_one(ScrollGutter).display = not loading
-        body = self.query_one(_PullRequestBody)
+        body = self.query_one("#pull-request-body", Static)
         body.display = not loading
         if not loading:
             body.refresh(layout=True)
@@ -325,10 +311,7 @@ class GitHubPullRequestView(GutteredScroll):
         pr = self.panel.viewed
         if pr is None:
             return []
-        console = Console(width=80, file=io.StringIO(), force_terminal=False)
-        with console.capture() as capture:
-            console.print(self.render_view(pr))
-        return capture.get().splitlines()
+        return plain_lines(self.render_view(pr))
 
     def action_open_in_github(self) -> None:
         pr = self.panel.viewed

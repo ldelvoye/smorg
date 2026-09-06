@@ -34,6 +34,7 @@ from smorg.core.keys import SHELL_KEYS
 from smorg.core.registry import UnknownIntegration, get_integration
 from smorg.core.state import SeenState
 from smorg.core.update import get_latest_version, is_newer
+from smorg.shell.cursor import step_cursor
 from smorg.shell.format import merge_key_display, symbolize_key_display
 from smorg.shell.help import HelpOverlay, Row, Section
 from smorg.shell.menu import ManagementScreen, MenuCommands
@@ -262,7 +263,7 @@ class SmorgApp(App[None]):
             return
         tabs = self.query_one(TabbedContent)
         index = self.tab_ids.index(tabs.active)
-        tabs.active = self.tab_ids[(index + offset) % len(self.tab_ids)]
+        tabs.active = self.tab_ids[step_cursor(index, offset, len(self.tab_ids))]
 
     def action_next_tab(self) -> None:
         self._shift_tab(1)

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-
 from textual.app import ComposeResult
 
 from smorg.integrations.linear.navigation import Target, Trail, issue_of_target
@@ -11,20 +9,25 @@ from smorg.integrations.linear.source import Issue
 from smorg.integrations.linear.views import LinearView
 from smorg.integrations.linear.views.issue import LinearIssueView
 from smorg.integrations.linear.views.issues import LinearIssues
-from smorg.shell.panel import Panel
+from smorg.shell.view_host import HostedView, ViewHostPanel
+
+_VIEW_CLASSES: dict[LinearView, type[HostedView]] = {
+    LinearView.ISSUES: LinearIssues,
+    LinearView.ISSUE: LinearIssueView,
+}
 
 
-class LinearPanel(Panel):
-    can_focus = False
-
+class LinearPanel(ViewHostPanel[LinearView]):
     DEFAULT_CSS = """
     LinearPanel { align-horizontal: center; }
     """
 
     def __init__(self) -> None:
-        super().__init__()
-        self.active_view = LinearView.ISSUES
+        super().__init__(LinearView.ISSUES)
         self.trail = Trail()
+
+    def view_classes(self) -> dict[LinearView, type[HostedView]]:
+        return _VIEW_CLASSES
 
     @property
     def viewed(self) -> Issue | None:
@@ -33,15 +36,6 @@ class LinearPanel(Panel):
     def compose(self) -> ComposeResult:
         yield LinearIssues(self)
         yield LinearIssueView(self)
-
-    def on_mount(self) -> None:
-        self._sync_view_display()
-
-    def show_view(self, view: LinearView) -> None:
-        self.active_view = view
-        self._sync_view_display()
-        self._active_view_widget().focus()
-        self.refresh()
 
     def open_issue(self, issue: Issue, mark: bool = True) -> None:
         """Show one issue full screen on top of the trail; its detail loads while the header
@@ -89,38 +83,11 @@ class LinearPanel(Panel):
         ids = [visit.issue.id for visit in self.trail.visits]
         return tuple(ids)
 
-    def focus(self, scroll_visible: bool = True):
-        self._active_view_widget().focus(scroll_visible)
-        return self
-
-    def _active_view_widget(self) -> LinearIssues | LinearIssueView:
-        if self.active_view is LinearView.ISSUE:
-            return self._issue_view()
-        return self._issues()
-
-    def _sync_view_display(self) -> None:
-        showing_issue = self.active_view is LinearView.ISSUE
-        self._issues().display = not showing_issue
-        self._issue_view().display = showing_issue
-
     def _issues(self) -> LinearIssues:
         return self.query_one(LinearIssues)
 
     def _issue_view(self) -> LinearIssueView:
         return self.query_one(LinearIssueView)
-
-    def refresh(
-        self, *regions, repaint: bool = True, layout: bool = False, recompose: bool = False
-    ):
-        if self.is_mounted:
-            self._sync_view_display()
-            self._issue_view().refresh_content()
-        return super().refresh(*regions, repaint=repaint, layout=layout, recompose=recompose)
-
-    def help_bindings(self) -> Iterable[object]:
-        if self.active_view is LinearView.ISSUE:
-            return LinearIssueView.BINDINGS
-        return LinearIssues.BINDINGS
 
     def issues(self) -> tuple[Issue, ...]:
         issues = [item for item in self.items if isinstance(item, Issue)]
@@ -139,10 +106,3 @@ class LinearPanel(Panel):
         for visit in self.trail.visits:
             keys.add(self.detail_key(visit.issue))
         return keys
-
-    def ready_text(self) -> str:
-        if not self.is_mounted:
-            return super().ready_text()
-        if self.active_view is LinearView.ISSUE:
-            return "\n".join(self._issue_view().content_lines())
-        return "\n".join(self._issues().content_lines())
