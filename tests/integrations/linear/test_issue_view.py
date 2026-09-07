@@ -7,6 +7,7 @@ import pytest
 from textual.containers import VerticalScroll
 
 from smorg.core.contract import Newest
+from smorg.integrations.linear.navigation import format_target_row, target_of_sub_issue
 from smorg.integrations.linear.palette import accent_for_background
 from smorg.integrations.linear.panel import LinearPanel
 from smorg.integrations.linear.source import (
@@ -22,7 +23,6 @@ from smorg.integrations.linear.views.issue import (
     LinearIssueView,
     _format_due,
     _format_related_row,
-    _format_sub_issue_row,
 )
 from smorg.shell.terminal_palette import StatusColors
 
@@ -128,7 +128,8 @@ def test_a_sub_issue_row_links_its_id_to_the_issue_when_it_has_a_url():
         priority="",
         url="https://linear.app/x/issue/ENG-2",
     )
-    row = _format_sub_issue_row(child, colors, accent_for_background(None))
+    target = target_of_sub_issue(child)
+    row = format_target_row(target, colors, accent_for_background(None), False)
     link_spans = [span for span in row.spans if "link " in str(span.style)]
     assert len(link_spans) == 1
     assert row.plain[link_spans[0].start : link_spans[0].end] == "ENG-2"

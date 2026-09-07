@@ -9,8 +9,8 @@ from textual.widgets import Static
 from smorg.core.state import SeenState
 from smorg.integrations.linear.glyphs import format_priority, status_color, status_disc
 from smorg.integrations.linear.palette import accent_for_background
-from smorg.integrations.linear.views.issues import LinearIssues, _format_marks, _format_row_meta
-from smorg.shell.cards import CHANGED_MARK
+from smorg.integrations.linear.views.issues import LinearIssues, _format_row_meta
+from smorg.shell.cards import CHANGED_MARK, format_marks
 from smorg.shell.terminal_palette import StatusColors
 
 from .helpers import NOW, PanelHarness, issue, issues_with, panel_with
@@ -115,7 +115,7 @@ def test_priority_bars_fill_to_the_level_in_the_stage_color_with_own_glyphs_for_
 
 
 def test_the_changed_mark_uses_the_indigo_accent_not_green():
-    marks = _format_marks(False, True, accent_for_background(None))
+    marks = format_marks(False, True, accent_for_background(None))
     style = _style_at(marks, CHANGED_MARK)
     assert style == accent_for_background(None)
     assert style != COLORS.green

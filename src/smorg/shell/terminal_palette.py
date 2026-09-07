@@ -101,13 +101,18 @@ _STATUS_DARK = StatusColors(red="#f85149", yellow="#d29922", green="#3fb950")
 _STATUS_LIGHT = StatusColors(red="#cf222e", yellow="#9a6700", green="#1a7f37")
 
 
+def pick_for_background[T](dark: T, light: T, background: RGB | None) -> T:
+    """`light` on a light terminal background, otherwise `dark`; unknown counts as dark."""
+    if background is None:
+        return dark
+    if relative_luminance(background) > 0.5:
+        return light
+    return dark
+
+
 def status_colors(background: RGB | None) -> StatusColors:
     """Primer's semantic shades for this background; the dark set when unknown."""
-    if background is None:
-        return _STATUS_DARK
-    if relative_luminance(background) > 0.5:
-        return _STATUS_LIGHT
-    return _STATUS_DARK
+    return pick_for_background(_STATUS_DARK, _STATUS_LIGHT, background)
 
 
 def contrast_ratio(one: RGB, other: RGB) -> float:

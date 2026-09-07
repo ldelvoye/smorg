@@ -7,36 +7,19 @@ import webbrowser
 from rich.text import Text
 from textual.binding import Binding
 
-from smorg.integrations.linear.glyphs import DISC_BACKLOG, status_color, status_disc
-from smorg.integrations.linear.navigation import TRAIL_ROOT, Target, TargetSection, Visit
-from smorg.integrations.linear.source import Issue
+from smorg.integrations.linear.navigation import (
+    TRAIL_ROOT,
+    Target,
+    TargetSection,
+    Visit,
+    format_target_row,
+    target_of_issue,
+)
 from smorg.shell.picker import Picker, Row, Section
 from smorg.shell.terminal_palette import StatusColors
 
 _OPEN_HINT = "⏎ open · o open in Linear · esc close"
 _TRAIL_HINT = "⏎ go back there · esc close"
-
-
-def format_target_row(target: Target, colors: StatusColors, accent: str, dim_title: bool) -> Text:
-    row = Text()
-    if target.status:
-        disc = status_disc(target.status, target.status_type)
-        row.append(disc, style=status_color(target.status, target.status_type, colors, accent))
-    else:
-        row.append(DISC_BACKLOG, style="dim")
-    row.append(" ")
-    if target.url:
-        row.append(target.id, style=f"dim link {target.url}")
-    else:
-        row.append(target.id, style="dim")
-    row.append("  ")
-    if dim_title:
-        row.append(target.title, style="dim")
-    else:
-        row.append(target.title)
-    row.no_wrap = True
-    row.overflow = "ellipsis"
-    return row
 
 
 class OpenFromPicker(Picker):
@@ -81,24 +64,14 @@ class TrailPicker(Picker):
     ]
 
 
-def _target_of(issue: Issue) -> Target:
-    return Target(
-        id=issue.id,
-        title=issue.title,
-        status=issue.status,
-        status_type=issue.status_type,
-        priority=issue.priority,
-        url=issue.url,
-    )
-
-
 def trail_picker(visits: list[Visit], colors: StatusColors, accent: str) -> TrailPicker:
     """The current page first (dim), then every earlier visit, and the root `issues` last."""
     rows: list[Row] = []
     last = len(visits) - 1
     for index in range(last, -1, -1):
         current = index == last
-        row = format_target_row(_target_of(visits[index].issue), colors, accent, current)
+        target = target_of_issue(visits[index].issue)
+        row = format_target_row(target, colors, accent, current)
         rows.append((row, index))
     rows.append((Text(TRAIL_ROOT), -1))
     cursor = min(1, len(rows) - 1)

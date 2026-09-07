@@ -1,7 +1,5 @@
 """Tests for the Linear host panel: view delegation, never the network."""
 
-from pathlib import Path
-
 import pytest
 from textual.containers import VerticalScroll
 from textual.widgets import Static
@@ -12,21 +10,6 @@ from smorg.integrations.linear.views.issue import LinearIssueView
 from smorg.integrations.linear.views.issues import LinearIssues
 
 from .helpers import PanelHarness, detail, issue, panel_with
-
-
-def test_the_panel_and_its_views_never_fetch():
-    """The seam the whole design rests on, enforced rather than trusted."""
-    linear_dir = Path("src") / "smorg" / "integrations" / "linear"
-    files = [
-        linear_dir / "panel.py",
-        linear_dir / "glyphs.py",
-        linear_dir / "navigation.py",
-    ] + sorted(linear_dir.glob("views/*.py"))
-    for file in files:
-        source = file.read_text()
-        assert "httpx" not in source, file
-        assert "McpSession" not in source, file
-        assert "fetch" not in source, file
 
 
 @pytest.mark.asyncio

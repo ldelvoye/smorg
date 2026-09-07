@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import io
 import webbrowser
 from typing import TYPE_CHECKING
 
-from rich.console import Console, Group, RenderableType
+from rich.console import Group, RenderableType
 from rich.panel import Panel as Card
 from rich.text import Text
 from textual.app import ComposeResult, RenderResult
@@ -25,9 +24,11 @@ from smorg.integrations.github.source import (
     PullRequestDetail,
     PullRequestDiff,
 )
-from smorg.shell.cards import CARD_TITLE_STYLE, SELECTED_MARK, format_card, format_count
+from smorg.shell.cards import SELECTED_MARK, format_card, format_card_title, format_count
+from smorg.shell.format import plain_lines
 from smorg.shell.panel import GutteredScroll
 from smorg.shell.terminal_palette import StatusColors
+from smorg.shell.view_host import HostedView
 
 if TYPE_CHECKING:
     from smorg.integrations.github.panel import GitHubPanel
@@ -145,7 +146,7 @@ def _format_file_title(file: FileDiff, colors: StatusColors) -> Text:
         name = f"{file.previous_path} → {file.path}"
     else:
         name = file.path
-    title = Text(name, style=CARD_TITLE_STYLE)
+    title = format_card_title(name)
     if file.additions != ABSENT_COUNT and file.deletions != ABSENT_COUNT:
         title.append(" · ")
         title.append(f"+{file.additions}", style=colors.green)
@@ -219,7 +220,7 @@ class _DiffCard(Static):
         return self._view.render_card()
 
 
-class GitHubDiffView(Vertical):
+class GitHubDiffView(Vertical, HostedView):
     BINDINGS = [
         Binding("j", "next_file", "next file", show=False),
         Binding("k", "previous_file", "previous file", show=False),
@@ -374,7 +375,7 @@ class GitHubDiffView(Vertical):
                 rows.append(Text())
             rows.append(_format_file_row(file, index == self.selected_index, self._marquee_offset))
         count = _format_files_count(diff)
-        title = Text(f"files ({count})", style=CARD_TITLE_STYLE)
+        title = format_card_title(f"files ({count})")
         return format_card(title, rows)
 
     def render_card(self) -> RenderableType:
@@ -408,10 +409,7 @@ class GitHubDiffView(Vertical):
         pr = self.panel.viewed
         if pr is None:
             return []
-        console = Console(width=80, file=io.StringIO(), force_terminal=False)
-        with console.capture() as capture:
-            console.print(self.render_view())
-        return capture.get().splitlines()
+        return plain_lines(self.render_view())
 
     def action_next_file(self) -> None:
         diff = self._diff()

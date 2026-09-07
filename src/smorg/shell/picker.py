@@ -2,36 +2,22 @@
 
 from __future__ import annotations
 
-import io
-
-from rich.console import Console
 from rich.text import Text
-from textual.app import ComposeResult, RenderResult
+from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.widgets import Static
 
 from smorg.shell.cards import SELECTED_MARK
+from smorg.shell.cursor import clamp_cursor, step_cursor
+from smorg.shell.format import plain_lines, truncating
 from smorg.shell.modal import ModalBox
-from smorg.shell.panel import GutteredScroll
+from smorg.shell.panel import GutteredScroll, ViewBody
 
 Row = tuple[Text, object]
 Section = tuple[str, list[Row]]
 
 _HEADING_STYLE = "dim"
 _HINT_STYLE = "dim"
-
-
-class _PickerBody(Static):
-    DEFAULT_CSS = """
-    _PickerBody { text-wrap: nowrap; text-overflow: ellipsis; }
-    """
-
-    def __init__(self, picker: Picker) -> None:
-        super().__init__(markup=False, id="picker-body")
-        self._picker = picker
-
-    def render(self) -> RenderResult:
-        return self._picker.render_content()
 
 
 class Picker(ModalBox):
@@ -41,6 +27,9 @@ class Picker(ModalBox):
 
     DEFAULT_CSS = """
     Picker > .box { max-height: 80%; max-width: 90%; }
+    /* Textual renders a bare Text as its own Content, without Rich's no_wrap and overflow
+     * flags, so the truncation has to come from CSS. */
+    Picker #picker-body { text-wrap: nowrap; text-overflow: ellipsis; }
     """
 
     def __init__(self, title: str, sections: list[Section], hint: str, cursor: int = 0) -> None:
@@ -49,9 +38,12 @@ class Picker(ModalBox):
         self._sections = sections
         self._hint = hint
         self.cursor = cursor
+        self._rows: list[Row] = []
+        for _, section_rows in self._sections:
+            self._rows.extend(section_rows)
 
     def compose(self) -> ComposeResult:
-        body = GutteredScroll(_PickerBody(self), classes="box")
+        body = GutteredScroll(ViewBody(self.render_content, id="picker-body"), classes="box")
         body.can_focus = False
         body.border_title = Text(self._title)
         yield body
@@ -60,16 +52,13 @@ class Picker(ModalBox):
         self.call_after_refresh(self._scroll_selected_into_view)
 
     def rows(self) -> list[Row]:
-        rows: list[Row] = []
-        for _, section_rows in self._sections:
-            rows.extend(section_rows)
-        return rows
+        return self._rows
 
     def selected_value(self) -> object | None:
         rows = self.rows()
         if not rows:
             return None
-        index = min(self.cursor, len(rows) - 1)
+        index = clamp_cursor(self.cursor, len(rows))
         _, value = rows[index]
         return value
 
@@ -78,7 +67,7 @@ class Picker(ModalBox):
         box, while a multi-line Text measures as its longest line and truncates each line.
         """
         rows = self.rows()
-        selected = min(self.cursor, max(len(rows) - 1, 0))
+        selected = clamp_cursor(self.cursor, len(rows))
         lines: list[Text] = []
         row_index = 0
         for section_index, (heading, section_rows) in enumerate(self._sections):
@@ -98,21 +87,16 @@ class Picker(ModalBox):
         lines.append(Text())
         lines.append(Text(self._hint, style=_HINT_STYLE))
         content = Text("\n").join(lines)
-        content.no_wrap = True
-        content.overflow = "ellipsis"
-        return content
+        return truncating(content)
 
     def content_lines(self) -> list[str]:
         """render_content flattened to plain text, so the two cannot drift apart."""
-        console = Console(width=80, file=io.StringIO(), force_terminal=False)
-        with console.capture() as capture:
-            console.print(self.render_content(), no_wrap=True, overflow="ellipsis")
-        return capture.get().splitlines()
+        return plain_lines(self.render_content())
 
     def _selected_line(self) -> int:
         """The rendered line the cursor's row sits on, counting headings and separators."""
         rows = self.rows()
-        selected = min(self.cursor, max(len(rows) - 1, 0))
+        selected = clamp_cursor(self.cursor, len(rows))
         line = 0
         row_index = 0
         for section_index, (heading, section_rows) in enumerate(self._sections):
@@ -151,9 +135,8 @@ class Picker(ModalBox):
         rows = self.rows()
         if not rows:
             return
-        index = min(self.cursor, len(rows) - 1)
-        self.cursor = (index + offset) % len(rows)
-        self.query_one(_PickerBody).refresh()
+        self.cursor = step_cursor(self.cursor, offset, len(rows))
+        self.query_one("#picker-body", Static).refresh()
         self._scroll_selected_into_view()
 
     def action_confirm(self) -> None:

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import io
 from datetime import datetime
 
+from rich.console import Console, Group, RenderableType
 from rich.text import Text
 
 from smorg.auth.store import now
@@ -70,3 +72,20 @@ def format_hidden_line[T](shown: Newest[T], noun: str) -> Text:
     else:
         count = str(shown.hidden)
     return Text(f"… {count} earlier {label}", style="dim")
+
+
+def plain_lines(renderable: RenderableType, width: int = 80) -> list[str]:
+    """The renderable flattened to plain text lines, as a `width`-column terminal would show it."""
+    console = Console(width=width, file=io.StringIO(), force_terminal=False)
+    with console.capture() as capture:
+        # Inside a Group: printed bare, a Text is merged into a new one and loses its own
+        # no_wrap and overflow flags.
+        console.print(Group(renderable))
+    return capture.get().splitlines()
+
+
+def truncating(text: Text) -> Text:
+    """The same text, clipped with an ellipsis instead of wrapped."""
+    text.no_wrap = True
+    text.overflow = "ellipsis"
+    return text

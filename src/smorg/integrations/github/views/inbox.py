@@ -6,25 +6,20 @@
 
 from __future__ import annotations
 
-import io
 import webbrowser
 from typing import TYPE_CHECKING
 
-from rich import box
-from rich.console import Console, Group, RenderableType
-from rich.panel import Panel as Card
+from rich.console import Group, RenderableType
 from rich.text import Text
-from textual.app import ComposeResult, RenderResult
 from textual.binding import Binding
-from textual.containers import Vertical
-from textual.widgets import Static
 
 from smorg.integrations.github.source import Category, PullRequest
 from smorg.integrations.github.views import GitHubView
-from smorg.shell.cards import CHANGED_MARK, SELECTED_MARK
-from smorg.shell.format import age
-from smorg.shell.panel import PanelState
+from smorg.shell.cards import format_card, format_card_title, format_marked_cell
+from smorg.shell.cursor import clamp_cursor, step_cursor
+from smorg.shell.format import age, plain_lines
 from smorg.shell.terminal_palette import StatusColors
+from smorg.shell.view_host import GatedBodyView
 
 if TYPE_CHECKING:
     from smorg.integrations.github.panel import GitHubPanel
@@ -33,18 +28,16 @@ _EMPTY_BAND = "all caught up"
 _BACK_HINT = "‹ esc — menu"
 
 _BAND_TITLE_STYLE = "bold underline"
-# Card titles sit on the dim border; "not dim" stops the border's dim washing their color.
-_CARD_TITLE_STYLE = "bold not dim"
 
 
-def _category_style(category: Category, colors: StatusColors) -> str:
+def _category_color(category: Category, colors: StatusColors) -> str:
     if category is Category.NEEDS_YOUR_REVIEW or category is Category.NEEDS_ACTION:
-        return f"{_CARD_TITLE_STYLE} {colors.red}"
+        return colors.red
     if category is Category.WAITING:
-        return f"{_CARD_TITLE_STYLE} {colors.yellow}"
+        return colors.yellow
     if category is Category.READY_TO_MERGE:
-        return f"{_CARD_TITLE_STYLE} {colors.green}"
-    return _CARD_TITLE_STYLE
+        return colors.green
+    return ""
 
 
 _BANDS: tuple[tuple[str, tuple[Category, ...]], ...] = (
@@ -100,23 +93,7 @@ def _format_meta(pr: PullRequest) -> str:
     return f"{pr.author} · {when}"
 
 
-class _InboxBody(Static):
-    """Draws the inbox's bands and state text; owns no state of its own."""
-
-    def __init__(self, inbox: GitHubInbox) -> None:
-        # markup off: rows carry server-controlled text, so a hostile title can't style,
-        # hide, or garble the inbox via Rich markup.
-        super().__init__(markup=False, id="body")
-        self._inbox = inbox
-
-    def render(self) -> RenderResult:
-        panel = self._inbox.panel
-        if panel.state is PanelState.READY:
-            return self._inbox.render_view()
-        return panel.body_text()
-
-
-class GitHubInbox(Vertical):
+class GitHubInbox(GatedBodyView["GitHubPanel"]):
     BINDINGS = [
         Binding("up", "cursor_up", "select pull request", show=False),
         Binding("down", "cursor_down", "select pull request", show=False),
@@ -134,12 +111,8 @@ class GitHubInbox(Vertical):
     """
 
     def __init__(self, panel: GitHubPanel) -> None:
-        super().__init__()
-        self.panel = panel
+        super().__init__(panel)
         self.cursor = 0
-
-    def compose(self) -> ComposeResult:
-        yield _InboxBody(self)
 
     def _bands(self) -> tuple[Band, ...]:
         return _bands_of(self.panel.pull_requests())
@@ -148,7 +121,7 @@ class GitHubInbox(Vertical):
         ordered = _ordered(bands)
         if not ordered:
             return None
-        index = min(self.cursor, len(ordered) - 1)
+        index = clamp_cursor(self.cursor, len(ordered))
         return ordered[index]
 
     def selected_item(self) -> PullRequest | None:
@@ -185,10 +158,7 @@ class GitHubInbox(Vertical):
 
     def content_lines(self) -> list[str]:
         """render_view flattened to plain text, so the two cannot drift apart."""
-        console = Console(width=80, file=io.StringIO(), force_terminal=False)
-        with console.capture() as capture:
-            console.print(self.render_view())
-        return capture.get().splitlines()
+        return plain_lines(self.render_view())
 
     def _format_section_card(
         self,
@@ -204,44 +174,17 @@ class GitHubInbox(Vertical):
             head, meta = self._format_cell(pr, pr is selected, colors)
             lines.append(head)
             lines.append(meta)
-        heading = Text(_format_heading(category, prs), style=_category_style(category, colors))
-        return Card(
-            Group(*lines),
-            title=heading,
-            title_align="left",
-            box=box.ROUNDED,
-            border_style="dim",
-            padding=(0, 1),
-        )
+        color = _category_color(category, colors)
+        heading = format_card_title(_format_heading(category, prs), color)
+        return format_card(heading, lines)
 
     def _format_cell(
         self, pr: PullRequest, selected: bool, colors: StatusColors
     ) -> tuple[Text, Text]:
         """A pull request's two lines: the marked title, then its dim reference · author · age."""
-        head = Text()
-        if selected:
-            head.append(SELECTED_MARK, style="bold")
-        else:
-            head.append(" ")
-        head.append(" ")
         changed = self.panel.seen.is_changed(self.panel.integration_id, pr)
-        if changed:
-            head.append(CHANGED_MARK, style=colors.green)
-        else:
-            head.append(" ")
-        head.append(" ")
-        if selected:
-            head.append(pr.title, style="bold")
-        else:
-            head.append(pr.title)
-        head.no_wrap = True
-        head.overflow = "ellipsis"
-        meta = Text()
-        meta.append("    ")
-        meta.append(f"{pr.repository}#{pr.number} · {_format_meta(pr)}", style="dim")
-        meta.no_wrap = True
-        meta.overflow = "ellipsis"
-        return head, meta
+        meta = f"{pr.repository}#{pr.number} · {_format_meta(pr)}"
+        return format_marked_cell(pr.title, meta, selected, changed, colors.green)
 
     def action_open_selected(self) -> None:
         pr = self.selected_item()
@@ -266,8 +209,7 @@ class GitHubInbox(Vertical):
         ordered = _ordered(self._bands())
         if not ordered:
             return
-        index = min(self.cursor, len(ordered) - 1)
-        self.cursor = (index + offset) % len(ordered)
+        self.cursor = step_cursor(self.cursor, offset, len(ordered))
         self.panel.refresh()
 
     def action_back_to_menu(self) -> None:
