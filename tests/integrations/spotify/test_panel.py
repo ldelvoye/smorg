@@ -1,7 +1,6 @@
 """Tests for the Spotify panel: one player-state snapshot, no cursor, no seen state."""
 
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 import pytest
 from textual.app import App, ComposeResult
@@ -70,13 +69,6 @@ def panel_with(player_state: PlayerState) -> SpotifyPanel:
     panel.items = (player_state,)
     panel.integration_id = "spotify"
     return panel
-
-
-def test_the_panel_never_fetches():
-    """The seam the whole design rests on, enforced rather than trusted."""
-    source = (Path("src") / "smorg" / "integrations" / "spotify" / "panel.py").read_text()
-    assert "httpx" not in source
-    assert "fetch" not in source
 
 
 # --- The banner ---

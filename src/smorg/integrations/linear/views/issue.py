@@ -26,7 +26,6 @@ from smorg.integrations.linear.navigation import (
     target_of_sub_issue,
     targets_of,
 )
-from smorg.integrations.linear.palette import accent_for_background
 from smorg.integrations.linear.source import (
     Comment,
     Issue,
@@ -459,7 +458,7 @@ class LinearIssueView(Horizontal, HostedView):
         self, issue: Issue, detail: IssueDetail | None, narrow: bool
     ) -> RenderableType:
         colors = self.panel.status_colors()
-        accent = accent_for_background(self.panel._terminal_background())
+        accent = self.panel.accent()
         parts: list[RenderableType] = [*self._format_trail_lines(narrow), Text()]
         parts.extend(_format_header(issue, detail, colors, accent))
         if narrow:
@@ -502,7 +501,7 @@ class LinearIssueView(Horizontal, HostedView):
 
     def render_sidebar(self, issue: Issue, detail: IssueDetail | None) -> RenderableType:
         colors = self.panel.status_colors()
-        accent = accent_for_background(self.panel._terminal_background())
+        accent = self.panel.accent()
         body: list[RenderableType] = []
         for heading, rows in _format_sidebar_sections(issue, detail, colors, accent):
             if body:
@@ -544,7 +543,7 @@ class LinearIssueView(Horizontal, HostedView):
             self.panel.notify("nothing to open from here")
             return
         colors = self.panel.status_colors()
-        accent = accent_for_background(self.panel._terminal_background())
+        accent = self.panel.accent()
         picker = open_from_picker(issue.id, sections, colors, accent, self.picker_cursor)
 
         def picked(value: object | None) -> None:
@@ -556,7 +555,7 @@ class LinearIssueView(Horizontal, HostedView):
 
     def action_show_trail(self) -> None:
         colors = self.panel.status_colors()
-        accent = accent_for_background(self.panel._terminal_background())
+        accent = self.panel.accent()
         picker = trail_picker(self.panel.trail.visits, colors, accent)
         self.app.push_screen(picker, self._trail_picked)
 

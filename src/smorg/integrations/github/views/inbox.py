@@ -11,19 +11,15 @@ from typing import TYPE_CHECKING
 
 from rich.console import Group, RenderableType
 from rich.text import Text
-from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
-from textual.widgets import Static
 
 from smorg.integrations.github.source import Category, PullRequest
 from smorg.integrations.github.views import GitHubView
 from smorg.shell.cards import format_card, format_card_title, format_marked_cell
 from smorg.shell.cursor import clamp_cursor, step_cursor
 from smorg.shell.format import age, plain_lines
-from smorg.shell.panel import PanelState, ViewBody
 from smorg.shell.terminal_palette import StatusColors
-from smorg.shell.view_host import HostedView
+from smorg.shell.view_host import GatedBodyView
 
 if TYPE_CHECKING:
     from smorg.integrations.github.panel import GitHubPanel
@@ -97,7 +93,7 @@ def _format_meta(pr: PullRequest) -> str:
     return f"{pr.author} · {when}"
 
 
-class GitHubInbox(Vertical, HostedView):
+class GitHubInbox(GatedBodyView["GitHubPanel"]):
     BINDINGS = [
         Binding("up", "cursor_up", "select pull request", show=False),
         Binding("down", "cursor_down", "select pull request", show=False),
@@ -115,22 +111,8 @@ class GitHubInbox(Vertical, HostedView):
     """
 
     def __init__(self, panel: GitHubPanel) -> None:
-        super().__init__()
-        self.panel = panel
+        super().__init__(panel)
         self.cursor = 0
-
-    def compose(self) -> ComposeResult:
-        yield ViewBody(self._render_body, id="body")
-
-    def _render_body(self) -> RenderableType:
-        if self.panel.state is PanelState.READY:
-            return self.render_view()
-        return self.panel.body_text()
-
-    def refresh_content(self) -> None:
-        if not self.is_mounted:
-            return
-        self.query_one("#body", Static).refresh()
 
     def _bands(self) -> tuple[Band, ...]:
         return _bands_of(self.panel.pull_requests())

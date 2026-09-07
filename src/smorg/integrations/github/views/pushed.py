@@ -7,19 +7,15 @@ from typing import TYPE_CHECKING
 
 from rich.console import Group, RenderableType
 from rich.text import Text
-from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
-from textual.widgets import Static
 
 from smorg.integrations.github.source import PushedBranch
 from smorg.integrations.github.views import GitHubView
 from smorg.shell.cards import format_card, format_card_title, format_marked_cell
 from smorg.shell.cursor import clamp_cursor, step_cursor
 from smorg.shell.format import age, plain_lines
-from smorg.shell.panel import PanelState, ViewBody
 from smorg.shell.terminal_palette import StatusColors
-from smorg.shell.view_host import HostedView
+from smorg.shell.view_host import GatedBodyView
 
 if TYPE_CHECKING:
     from smorg.integrations.github.panel import GitHubPanel
@@ -45,7 +41,7 @@ def _format_failed_count(count: int) -> str:
     return f"{count} {noun} couldn't be checked this refresh"
 
 
-class GitHubPushedBranches(Vertical, HostedView):
+class GitHubPushedBranches(GatedBodyView["GitHubPanel"]):
     BINDINGS = [
         Binding("up", "cursor_up", "select branch", show=False),
         Binding("down", "cursor_down", "select branch", show=False),
@@ -58,21 +54,12 @@ class GitHubPushedBranches(Vertical, HostedView):
     GitHubPushedBranches { align-horizontal: center; }
     /* The cap keeps repository · headline · age near the names on wide terminals; the
      * centering places the capped body like the menu's composition. */
-    GitHubPushedBranches > #pushed-body { height: 1fr; max-width: 120; }
+    GitHubPushedBranches > #body { height: 1fr; max-width: 120; }
     """
 
     def __init__(self, panel: GitHubPanel) -> None:
-        super().__init__()
-        self.panel = panel
+        super().__init__(panel)
         self.cursor = 0
-
-    def compose(self) -> ComposeResult:
-        yield ViewBody(self._render_body, id="pushed-body")
-
-    def _render_body(self) -> RenderableType:
-        if self.panel.state is PanelState.READY:
-            return self.render_view()
-        return self.panel.body_text()
 
     def _branches(self) -> tuple[PushedBranch, ...]:
         container = self.panel.pushed_branches()
@@ -160,8 +147,3 @@ class GitHubPushedBranches(Vertical, HostedView):
 
     def action_back_to_menu(self) -> None:
         self.panel.show_view(GitHubView.MENU)
-
-    def refresh_content(self) -> None:
-        if not self.is_mounted:
-            return
-        self.query_one("#pushed-body", Static).refresh()

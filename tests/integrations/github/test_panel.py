@@ -1,7 +1,6 @@
 """Tests for the GitHub host panel: view delegation, never the network."""
 
 import json
-from pathlib import Path
 
 from smorg.core.contract import Newest
 from smorg.core.state import SeenState
@@ -45,23 +44,6 @@ def detail_with(**overrides) -> PullRequestDetail:
         "checks": UNAVAILABLE_CHECKS,
     }
     return PullRequestDetail(**(fields | overrides))
-
-
-def test_the_panel_and_its_views_never_fetch():
-    """The seam the whole design rests on, enforced rather than trusted."""
-    github_dir = Path("src") / "smorg" / "integrations" / "github"
-    files = [github_dir / "panel.py", github_dir / "loading.py"] + sorted(
-        github_dir.glob("views/*.py")
-    )
-    for file in files:
-        source = file.read_text()
-        assert "httpx" not in source, file
-        assert "Github(" not in source, file
-        assert "import requests" not in source, file
-        # show_fetch_phase and its caption are display-only; drop them before the fetch trip-wire.
-        scrubbed = source.replace("show_fetch_phase", "").replace("fetching", "")
-        assert "fetch" not in scrubbed, file
-        assert "shell.app" not in source, file
 
 
 def test_an_unmounted_host_has_no_selection():

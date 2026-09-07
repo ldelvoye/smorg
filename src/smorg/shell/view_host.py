@@ -5,9 +5,13 @@ from __future__ import annotations
 from collections.abc import Iterable
 from enum import Enum
 
+from rich.console import RenderableType
+from textual.app import ComposeResult
+from textual.containers import Vertical
 from textual.widget import Widget
+from textual.widgets import Static
 
-from smorg.shell.panel import Panel
+from smorg.shell.panel import Panel, PanelState, ViewBody
 
 
 class HostedView(Widget):
@@ -20,6 +24,33 @@ class HostedView(Widget):
     def refresh_content(self) -> None:
         """Repaint whatever the view draws from its panel's state."""
         raise NotImplementedError
+
+
+class GatedBodyView[P: Panel](Vertical, HostedView):
+    """A hosted view that is one body: render_view() while the panel is READY, otherwise the
+    panel's own state text.
+    """
+
+    def __init__(self, panel: P) -> None:
+        super().__init__()
+        self.panel = panel
+
+    def compose(self) -> ComposeResult:
+        yield ViewBody(self._render_body, id="body")
+
+    def render_view(self) -> RenderableType:
+        """The view's drawing in the READY state; every subclass overrides it."""
+        raise NotImplementedError
+
+    def _render_body(self) -> RenderableType:
+        if self.panel.state is PanelState.READY:
+            return self.render_view()
+        return self.panel.body_text()
+
+    def refresh_content(self) -> None:
+        if not self.is_mounted:
+            return
+        self.query_one("#body", Static).refresh()
 
 
 class ViewHostPanel[V: Enum](Panel):

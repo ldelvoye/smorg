@@ -7,10 +7,7 @@ from typing import TYPE_CHECKING
 
 from rich.console import Group, RenderableType
 from rich.text import Text
-from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
-from textual.widgets import Static
 
 from smorg.integrations.linear.glyphs import (
     PRIORITY_WIDTH,
@@ -18,14 +15,12 @@ from smorg.integrations.linear.glyphs import (
     status_color,
     status_disc,
 )
-from smorg.integrations.linear.palette import accent_for_background
 from smorg.integrations.linear.source import Issue
 from smorg.shell.cards import format_card, format_card_title, format_marks
 from smorg.shell.cursor import clamp_cursor, step_cursor
 from smorg.shell.format import age, plain_lines, truncating
-from smorg.shell.panel import PanelState, ViewBody
 from smorg.shell.terminal_palette import StatusColors
-from smorg.shell.view_host import HostedView
+from smorg.shell.view_host import GatedBodyView
 
 if TYPE_CHECKING:
     from smorg.integrations.linear.panel import LinearPanel
@@ -81,7 +76,7 @@ def _status_groups(issues: tuple[Issue, ...]) -> list[tuple[str, str, list[Issue
     return groups
 
 
-class LinearIssues(Vertical, HostedView):
+class LinearIssues(GatedBodyView["LinearPanel"]):
     BINDINGS = [
         Binding("up", "cursor_up", "select issue", show=False),
         Binding("down", "cursor_down", "select issue", show=False),
@@ -96,22 +91,8 @@ class LinearIssues(Vertical, HostedView):
     """
 
     def __init__(self, panel: LinearPanel) -> None:
-        super().__init__()
-        self.panel = panel
+        super().__init__(panel)
         self.cursor = 0
-
-    def compose(self) -> ComposeResult:
-        yield ViewBody(self._render_body, id="body")
-
-    def _render_body(self) -> RenderableType:
-        if self.panel.state is PanelState.READY:
-            return self.render_view()
-        return self.panel.body_text()
-
-    def refresh_content(self) -> None:
-        if not self.is_mounted:
-            return
-        self.query_one("#body", Static).refresh()
 
     def selected_item(self) -> Issue | None:
         issues = self._grouped()
@@ -173,7 +154,7 @@ class LinearIssues(Vertical, HostedView):
         else:
             selected = None
         colors = self.panel.status_colors()
-        accent = accent_for_background(self.panel._terminal_background())
+        accent = self.panel.accent()
         # One width for the whole list, so the title column never shifts at a group boundary.
         id_width = max((len(issue.id) for issue in issues), default=0)
         parts: list[RenderableType] = []

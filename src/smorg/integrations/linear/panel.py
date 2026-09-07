@@ -5,6 +5,7 @@ from __future__ import annotations
 from textual.app import ComposeResult
 
 from smorg.integrations.linear.navigation import Target, Trail, issue_of_target
+from smorg.integrations.linear.palette import accent_for_background
 from smorg.integrations.linear.source import Issue
 from smorg.integrations.linear.views import LinearView
 from smorg.integrations.linear.views.issue import LinearIssueView
@@ -28,6 +29,10 @@ class LinearPanel(ViewHostPanel[LinearView]):
 
     def view_classes(self) -> dict[LinearView, type[HostedView]]:
         return _VIEW_CLASSES
+
+    def accent(self) -> str:
+        """Linear's brand indigo, picked to sit on this terminal's background."""
+        return accent_for_background(self._terminal_background())
 
     @property
     def viewed(self) -> Issue | None:
