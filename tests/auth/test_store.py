@@ -138,7 +138,7 @@ def test_failed_write_leaves_the_previous_file_intact(file_store, monkeypatch):
 
 
 def test_serialised_credentials_never_leave_the_store_module():
-    package = Path(__file__).parents[1] / "src" / "smorg"
+    package = Path(__file__).parents[2] / "src" / "smorg"
     offenders = [
         module.relative_to(package).as_posix()
         for module in package.rglob("*.py")
