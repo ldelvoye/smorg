@@ -48,18 +48,12 @@ class GitHubPushedBranches(GatedBodyView["GitHubPanel"]):
         Binding("o", "open_selected", "open a create-PR page on GitHub", show=False),
         Binding("escape", "back_to_menu", "back to menu", show=False),
     ]
-    can_focus = True
-
     DEFAULT_CSS = """
     GitHubPushedBranches { align-horizontal: center; }
     /* The cap keeps repository · headline · age near the names on wide terminals; the
      * centering places the capped body like the menu's composition. */
-    GitHubPushedBranches > #body { height: 1fr; max-width: 120; }
+    GitHubPushedBranches > #body { width: 100%; max-width: 120; }
     """
-
-    def __init__(self, panel: GitHubPanel) -> None:
-        super().__init__(panel)
-        self.cursor = 0
 
     def _branches(self) -> tuple[PushedBranch, ...]:
         container = self.panel.pushed_branches()
@@ -144,6 +138,7 @@ class GitHubPushedBranches(GatedBodyView["GitHubPanel"]):
             return
         self.cursor = step_cursor(self.cursor, offset, len(branches))
         self.panel.refresh()
+        self.scroll_to_selection()
 
     def action_back_to_menu(self) -> None:
         self.panel.show_view(GitHubView.MENU)

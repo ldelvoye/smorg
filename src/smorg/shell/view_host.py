@@ -7,11 +7,15 @@ from enum import Enum
 
 from rich.console import RenderableType
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.geometry import Region, Spacing
 from textual.widget import Widget
 from textual.widgets import Static
 
-from smorg.shell.panel import Panel, PanelState, ViewBody
+from smorg.shell.format import selected_line
+from smorg.shell.panel import GutteredScroll, Panel, PanelState, ViewBody
+
+_CELL_LINES = 2
+_CELL_CONTEXT = Spacing(1, 0, 1, 0)
 
 
 class HostedView(Widget):
@@ -26,16 +30,21 @@ class HostedView(Widget):
         raise NotImplementedError
 
 
-class GatedBodyView[P: Panel](Vertical, HostedView):
-    """A hosted view that is one body: render_view() while the panel is READY, otherwise the
-    panel's own state text.
+class GatedBodyView[P: Panel](GutteredScroll, HostedView):
+    """A hosted view that is one scrolling body: render_view() while the panel is READY,
+    otherwise the panel's own state text.
+    """
+
+    DEFAULT_CSS = """
+    GatedBodyView > #body { height: auto; }
     """
 
     def __init__(self, panel: P) -> None:
         super().__init__()
         self.panel = panel
+        self.cursor = 0
 
-    def compose(self) -> ComposeResult:
+    def compose_content(self) -> ComposeResult:
         yield ViewBody(self._render_body, id="body")
 
     def render_view(self) -> RenderableType:
@@ -50,7 +59,26 @@ class GatedBodyView[P: Panel](Vertical, HostedView):
     def refresh_content(self) -> None:
         if not self.is_mounted:
             return
-        self.query_one("#body", Static).refresh()
+        self.query_one("#body", Static).refresh(layout=True)
+
+    def scroll_to_selection(self) -> None:
+        """Bring the selected two-line cell into view with a line of context on either side; the
+        first row brings the whole header above it along.
+        """
+        if not self.is_mounted:
+            return
+        if self.cursor == 0:
+            self.scroll_home(animate=False)
+            return
+        body = self.query_one("#body", Static)
+        width = body.content_size.width
+        if width <= 0:
+            return
+        line = selected_line(self._render_body(), width)
+        if line is None:
+            return
+        region = Region(0, line, 1, _CELL_LINES)
+        self.scroll_to_region(region, spacing=_CELL_CONTEXT, animate=False)
 
 
 class ViewHostPanel[V: Enum](Panel):

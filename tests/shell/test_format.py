@@ -1,11 +1,14 @@
 from datetime import UTC, datetime, timedelta
 
+from rich.console import Group
 from rich.text import Text
 
 from smorg.shell.format import (
+    SELECTED_STYLE,
     age,
     merge_key_display,
     plain_lines,
+    selected_line,
     symbolize_key_display,
     truncating,
 )
@@ -61,3 +64,10 @@ def test_plain_lines_keep_the_truncation_flags_of_a_bare_text():
     assert len(lines) == 1
     assert lines[0].startswith("ENG-0")
     assert lines[0].endswith("…")
+
+
+def test_selected_line_is_found_at_the_width_the_body_is_drawn():
+    marked = Group(Text("a" * 30), Text("x", style=SELECTED_STYLE))
+    assert selected_line(marked, 80) == 1
+    assert selected_line(marked, 10) == 3
+    assert selected_line(Group(Text("nothing selected")), 80) is None

@@ -6,10 +6,16 @@ import io
 from datetime import datetime
 
 from rich.console import Console, Group, RenderableType
+from rich.style import Style
 from rich.text import Text
 
 from smorg.auth.store import now
 from smorg.core.contract import Newest
+
+_SELECTED_KEY = "selected"
+
+SELECTED_STYLE = Style(bold=True, meta={_SELECTED_KEY: True})
+"""The style of the selection cursor mark; selected_line() finds the line that carries it."""
 
 
 def age(moment: datetime) -> str:
@@ -82,6 +88,20 @@ def plain_lines(renderable: RenderableType, width: int = 80) -> list[str]:
         # no_wrap and overflow flags.
         console.print(Group(renderable))
     return capture.get().splitlines()
+
+
+def selected_line(renderable: RenderableType, width: int) -> int | None:
+    """The 0-based line the selection mark lands on when drawn `width` columns wide, or None
+    when nothing is selected.
+    """
+    console = Console(width=width, file=io.StringIO(), force_terminal=False)
+    lines = console.render_lines(renderable, pad=False)
+    for index, segments in enumerate(lines):
+        for segment in segments:
+            style = segment.style
+            if style is not None and style.meta.get(_SELECTED_KEY):
+                return index
+    return None
 
 
 def truncating(text: Text) -> Text:
