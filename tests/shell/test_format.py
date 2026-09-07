@@ -3,9 +3,11 @@ from datetime import UTC, datetime, timedelta
 from rich.console import Group
 from rich.text import Text
 
+from smorg.core.contract import Newest
 from smorg.shell.format import (
     SELECTED_STYLE,
     age,
+    format_hidden_line,
     merge_key_display,
     plain_lines,
     selected_line,
@@ -64,6 +66,14 @@ def test_plain_lines_keep_the_truncation_flags_of_a_bare_text():
     assert len(lines) == 1
     assert lines[0].startswith("ENG-0")
     assert lines[0].endswith("…")
+
+
+def test_the_hidden_line_counts_what_it_knows_and_only_hints_at_what_it_does_not():
+    assert format_hidden_line(Newest(items=(), hidden=1), "event").plain == "… 1 earlier event"
+    at_the_cap = Newest(items=(), hidden=1, hidden_is_lower_bound=True)
+    assert format_hidden_line(at_the_cap, "event").plain == "… 1+ earlier events"
+    unknown = Newest(items=(), hidden=0, hidden_is_lower_bound=True)
+    assert format_hidden_line(unknown, "event").plain == "… earlier events"
 
 
 def test_selected_line_is_found_at_the_width_the_body_is_drawn():
