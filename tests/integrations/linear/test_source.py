@@ -668,6 +668,15 @@ def test_an_unparseable_due_date_is_malformed():
         detail_with(detail_handler({"issue": issue}))
 
 
+def test_a_fractional_estimate_is_kept_and_a_whole_float_reads_as_an_integer():
+    fractional = json.loads(json.dumps(DETAIL["issue"])) | {"estimate": 3.5}
+    detail = detail_with(detail_handler({"issue": fractional}))
+    assert detail.estimate == "3.5"
+    whole = json.loads(json.dumps(DETAIL["issue"])) | {"estimate": 3.0}
+    detail = detail_with(detail_handler({"issue": whole}))
+    assert detail.estimate == "3"
+
+
 def test_a_pull_request_tag_unwraps_like_an_issue_tag():
     issue = json.loads(json.dumps(DETAIL["issue"])) | {
         "description": 'closed as <pull-request id="p1" href="https://linear.app/x/review/abc">'

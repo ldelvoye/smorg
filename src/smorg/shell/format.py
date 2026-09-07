@@ -68,7 +68,10 @@ def format_hidden_line[T](shown: Newest[T], noun: str) -> Text:
     """(hidden=1, "review") -> "… 1 earlier review"
 
     (hidden=1 at the cap, "review") -> "… 1+ earlier reviews"
+    (hidden=0 at the cap, "review") -> "… earlier reviews"
     """
+    if shown.hidden_is_lower_bound and shown.hidden == 0:
+        return Text(f"… earlier {noun}s", style="dim")
     if shown.hidden == 1 and not shown.hidden_is_lower_bound:
         label = noun
     else:
