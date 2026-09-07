@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from rich.text import Text
 from textual.containers import VerticalScroll
 
 from smorg.core.contract import Newest
@@ -22,6 +23,7 @@ from smorg.integrations.linear.views.issue import (
     ACTIVITY_LIMIT,
     LinearIssueView,
     _format_due,
+    _format_header,
     _format_related_row,
 )
 from smorg.shell.terminal_palette import StatusColors
@@ -62,10 +64,24 @@ def test_the_header_carries_the_parent_line_only_with_a_parent():
     assert "Sub-issue of" not in without
 
     parent = ParentSummary(
-        id="ENG-0", title="the epic", status="In Progress", status_type="started"
+        id="ENG-0",
+        title="the epic",
+        status="In Progress",
+        status_type="started",
+        url="https://linear.app/x/issue/ENG-0",
     )
     with_parent = rendered(view_showing(detail(parent=parent)))
-    assert "Sub-issue of ◐ ENG-0 the epic" in with_parent
+    assert "Sub-issue of ◐ ENG-0  the epic" in with_parent
+
+    colors = StatusColors(red="red", yellow="yellow", green="green")
+    accent = accent_for_background(None)
+    lines = _format_header(issue("ENG-1"), detail(parent=parent), colors, accent)
+    parent_line = lines[2]
+    assert isinstance(parent_line, Text)
+    link_spans = [span for span in parent_line.spans if "link " in str(span.style)]
+    assert len(link_spans) == 1
+    linked_text = parent_line.plain[link_spans[0].start : link_spans[0].end]
+    assert linked_text == "ENG-0"
 
 
 def test_a_bare_issue_renders_only_status_priority_and_assignee_in_the_sidebar():

@@ -23,6 +23,7 @@ from smorg.integrations.linear.navigation import (
     Visit,
     format_target_row,
     format_trail,
+    target_of_parent,
     target_of_sub_issue,
     targets_of,
 )
@@ -77,15 +78,10 @@ def _format_header(
     title = Text(issue.title, style="bold")
     lines: list[RenderableType] = [reference, title]
     if detail is not None and detail.parent is not None:
-        parent = detail.parent
+        target = target_of_parent(detail.parent)
         line = Text()
         line.append("Sub-issue of ", style="dim")
-        disc = status_disc(parent.status, parent.status_type)
-        line.append(disc, style=status_color(parent.status, parent.status_type, colors, accent))
-        line.append(" ")
-        line.append(parent.id, style="dim")
-        line.append(" ")
-        line.append(parent.title)
+        line.append_text(format_target_row(target, colors, accent, False))
         lines.append(truncating(line))
     return lines
 
