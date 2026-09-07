@@ -83,16 +83,9 @@ class LinearIssues(GatedBodyView["LinearPanel"]):
         Binding("o", "open_selected", "open in Linear", show=False),
         Binding("enter", "open_issue", "view issue", show=False),
     ]
-    can_focus = True
-
     DEFAULT_CSS = """
     LinearIssues { width: 100%; max-width: 120; }
-    LinearIssues > #body { height: 1fr; }
     """
-
-    def __init__(self, panel: LinearPanel) -> None:
-        super().__init__(panel)
-        self.cursor = 0
 
     def selected_item(self) -> Issue | None:
         issues = self._grouped()
@@ -132,6 +125,7 @@ class LinearIssues(GatedBodyView["LinearPanel"]):
             return
         self.cursor = step_cursor(self.cursor, offset, len(issues))
         self.panel.refresh()
+        self.scroll_to_selection()
 
     def action_cursor_down(self) -> None:
         self._move(1)

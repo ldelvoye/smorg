@@ -101,18 +101,12 @@ class GitHubInbox(GatedBodyView["GitHubPanel"]):
         Binding("enter", "open_pull_request", "view pull request", show=False),
         Binding("escape", "back_to_menu", "back to menu", show=False),
     ]
-    can_focus = True
-
     DEFAULT_CSS = """
     GitHubInbox { align-horizontal: center; }
     /* The cap keeps author · age near the titles on wide terminals; the centering
      * places the capped body like the menu's composition. */
-    GitHubInbox > #body { height: 1fr; max-width: 120; }
+    GitHubInbox > #body { width: 100%; max-width: 120; }
     """
-
-    def __init__(self, panel: GitHubPanel) -> None:
-        super().__init__(panel)
-        self.cursor = 0
 
     def _bands(self) -> tuple[Band, ...]:
         return _bands_of(self.panel.pull_requests())
@@ -211,6 +205,7 @@ class GitHubInbox(GatedBodyView["GitHubPanel"]):
             return
         self.cursor = step_cursor(self.cursor, offset, len(ordered))
         self.panel.refresh()
+        self.scroll_to_selection()
 
     def action_back_to_menu(self) -> None:
         self.panel.show_view(GitHubView.MENU)

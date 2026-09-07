@@ -7,7 +7,7 @@ from rich.console import Group, RenderableType
 from rich.panel import Panel as Card
 from rich.text import Text
 
-from smorg.shell.format import truncating
+from smorg.shell.format import SELECTED_STYLE, truncating
 
 SELECTED_MARK = "▸"
 CHANGED_MARK = "●"
@@ -52,7 +52,7 @@ def format_marks(selected: bool, changed: bool, changed_style: str) -> Text:
     """The two-cell mark column: the selection cursor, then the unseen-change dot."""
     marks = Text()
     if selected:
-        marks.append(SELECTED_MARK, style="bold")
+        marks.append(SELECTED_MARK, style=SELECTED_STYLE)
     else:
         marks.append(" ")
     marks.append(" ")

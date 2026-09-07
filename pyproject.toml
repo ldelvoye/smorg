@@ -57,3 +57,8 @@ extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.pyflakes]
+# A view names its panel only inside this subscript, as a string; without this the import
+# behind that forward reference reads as unused.
+extend-generics = ["smorg.shell.view_host.GatedBodyView"]

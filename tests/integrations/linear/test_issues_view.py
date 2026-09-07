@@ -11,6 +11,7 @@ from smorg.integrations.linear.glyphs import format_priority, status_color, stat
 from smorg.integrations.linear.palette import accent_for_background
 from smorg.integrations.linear.views.issues import LinearIssues, _format_row_meta
 from smorg.shell.cards import CHANGED_MARK, format_marks
+from smorg.shell.format import selected_line
 from smorg.shell.terminal_palette import StatusColors
 
 from .helpers import NOW, PanelHarness, issue, issues_with, panel_with
@@ -333,3 +334,30 @@ async def test_plain_output_is_derived_from_the_styled_render():
         await pilot.pause()
         view = panel.query_one(LinearIssues)
         assert "\n".join(view.content_lines()) == panel.ready_text()
+
+
+@pytest.mark.asyncio
+async def test_moving_below_the_fold_scrolls_the_selection_into_view_and_a_refresh_keeps_it():
+    issues = [issue(f"ENG-{number}") for number in range(1, 9)]
+    panel = panel_with(*issues)
+    async with PanelHarness(panel).run_test(size=(100, 14)) as pilot:
+        view = panel.query_one(LinearIssues)
+        body = panel.query_one("#body", Static)
+        for _ in range(7):
+            await pilot.press("down")
+        await pilot.pause()
+        scrolled = view.scroll_offset.y
+        line = selected_line(view.render_view(), body.content_size.width)
+        assert scrolled > 0
+        assert line is not None
+        line_below_the_cell = line + 2
+        assert scrolled <= line
+        assert line_below_the_cell < scrolled + view.scrollable_content_region.height
+
+        panel.refresh()
+        await pilot.pause()
+        assert view.scroll_offset.y == scrolled
+
+        await pilot.press("down")
+        await pilot.pause()
+        assert view.scroll_offset.y == 0
