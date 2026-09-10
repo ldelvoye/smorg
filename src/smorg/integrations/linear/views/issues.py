@@ -14,8 +14,10 @@ from smorg.integrations.linear.glyphs import (
     format_priority,
     status_color,
     status_disc,
+    status_rank,
 )
 from smorg.integrations.linear.source import Issue
+from smorg.integrations.linear.views import LinearView
 from smorg.shell.cards import format_card, format_card_title, format_marks
 from smorg.shell.cursor import clamp_cursor, step_cursor
 from smorg.shell.format import age, plain_lines, truncating
@@ -25,20 +27,8 @@ from smorg.shell.view_host import GatedBodyView
 if TYPE_CHECKING:
     from smorg.integrations.linear.panel import LinearPanel
 
-# Ordered by actionability: doing, shepherding, queued, stuck.
-_STATUS_RANKS = {"in progress": 0, "in review": 1, "todo": 3, "blocked": 5}
-
 # The meta line starts under the id column: marks (3), priority (3), and their two separators.
 _META_INDENT = " " * 8
-
-
-def _status_rank(status: str, status_type: str) -> int:
-    known = _STATUS_RANKS.get(status.casefold())
-    if known is not None:
-        return known
-    if status_type == "started":
-        return 2
-    return 4
 
 
 def _format_group_title(
@@ -82,6 +72,7 @@ class LinearIssues(GatedBodyView["LinearPanel"]):
         Binding("down", "cursor_down", "select issue", show=False),
         Binding("o", "open_selected", "open in Linear", show=False),
         Binding("enter", "open_issue", "view issue", show=False),
+        Binding("escape", "back_to_menu", "back to menu", show=False),
     ]
     DEFAULT_CSS = """
     LinearIssues { width: 100%; max-width: 120; }
@@ -110,7 +101,7 @@ class LinearIssues(GatedBodyView["LinearPanel"]):
         ordered_statuses = sorted(
             groups,
             key=lambda status: (
-                _status_rank(status, groups[status][0].status_type),
+                status_rank(status, groups[status][0].status_type),
                 status.casefold(),
             ),
         )
@@ -139,6 +130,9 @@ class LinearIssues(GatedBodyView["LinearPanel"]):
             return
         webbrowser.open(issue.url)
         self.panel.mark_seen(issue)
+
+    def action_back_to_menu(self) -> None:
+        self.panel.show_view(LinearView.MENU)
 
     def render_view(self) -> RenderableType:
         issues = self._grouped()

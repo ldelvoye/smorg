@@ -24,6 +24,7 @@ from smorg.core.config import TabConfig, resolve_connection
 from smorg.core.contract import (
     Action,
     AuthExpired,
+    Integration,
     IntegrationError,
     Item,
     Malformed,
@@ -499,6 +500,9 @@ class SmorgApp(App[None]):
 
         Whatever happens, `on_stage` receives a final stage: DONE when fresh items landed, FAILED
         otherwise. That way the refresh indicator never gets stuck partway through its bar.
+
+        `fetch_started` and `fetch_finished` bracket the network part on the UI thread; a fetch
+        skipped as fresh calls neither.
         """
         completed = False
         try:
@@ -531,6 +535,20 @@ class SmorgApp(App[None]):
             if now() - fetched_at < integration.manifest.stale_after:
                 return False
 
+        self.call_from_thread(panel.fetch_started)
+        try:
+            return self._fetch_items(integration, integration_id, panel, on_stage, on_phase)
+        finally:
+            self.call_from_thread(panel.fetch_finished)
+
+    def _fetch_items(
+        self,
+        integration: Integration,
+        integration_id: str,
+        panel: Panel,
+        on_stage: Callable[[RefreshStage], None] | None,
+        on_phase: Callable[[int], None] | None,
+    ) -> bool:
         try:
             path, client_id = resolve_connection(
                 integration.manifest, self._tab_configs.get(integration_id)

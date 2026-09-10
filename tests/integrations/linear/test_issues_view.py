@@ -9,6 +9,7 @@ from textual.widgets import Static
 from smorg.core.state import SeenState
 from smorg.integrations.linear.glyphs import format_priority, status_color, status_disc
 from smorg.integrations.linear.palette import accent_for_background
+from smorg.integrations.linear.views import LinearView
 from smorg.integrations.linear.views.issues import LinearIssues, _format_row_meta
 from smorg.shell.cards import CHANGED_MARK, format_marks
 from smorg.shell.format import selected_line
@@ -245,6 +246,7 @@ async def test_pressing_the_down_key_moves_the_selection_through_the_real_bindin
     panel = panel_with(issue("ENG-1"), issue("ENG-2"))
     async with PanelHarness(panel).run_test() as pilot:
         await pilot.pause()
+        panel.show_view(LinearView.ISSUES)
         await pilot.press("down")
         await pilot.pause()
 
@@ -264,6 +266,7 @@ async def test_pressing_o_opens_the_selected_issue_and_clears_its_change_mark(mo
     panel = panel_with(issue("ENG-1"), issue("ENG-2"))
     async with PanelHarness(panel).run_test() as pilot:
         await pilot.pause()
+        panel.show_view(LinearView.ISSUES)
         assert panel.seen.is_changed("linear", issue("ENG-1")) is True
 
         await pilot.press("o")
@@ -304,6 +307,7 @@ async def test_a_hostile_title_is_never_interpreted_as_markup_in_the_real_render
     hostile = replace(issue("ENG-1"), title="[red]x[/red]")
     panel = panel_with(hostile)
     async with PanelHarness(panel).run_test() as pilot:
+        panel.show_view(LinearView.ISSUES)
         panel.refresh()
         await pilot.pause()
         body = panel.query_one("#body", Static)
@@ -319,6 +323,7 @@ async def test_a_hostile_status_is_never_interpreted_as_markup_in_the_real_rende
     hostile = replace(issue("ENG-1", status="[blue]Weird[/blue]"))
     panel = panel_with(hostile)
     async with PanelHarness(panel).run_test() as pilot:
+        panel.show_view(LinearView.ISSUES)
         panel.refresh()
         await pilot.pause()
         body = panel.query_one("#body", Static)
@@ -332,6 +337,7 @@ async def test_plain_output_is_derived_from_the_styled_render():
     panel = panel_with(issue("ENG-1", "In Review"), issue("ENG-2", "Todo"))
     async with PanelHarness(panel).run_test() as pilot:
         await pilot.pause()
+        panel.show_view(LinearView.ISSUES)
         view = panel.query_one(LinearIssues)
         assert "\n".join(view.content_lines()) == panel.ready_text()
 
@@ -341,6 +347,7 @@ async def test_moving_below_the_fold_scrolls_the_selection_into_view_and_a_refre
     issues = [issue(f"ENG-{number}") for number in range(1, 9)]
     panel = panel_with(*issues)
     async with PanelHarness(panel).run_test(size=(100, 14)) as pilot:
+        panel.show_view(LinearView.ISSUES)
         view = panel.query_one(LinearIssues)
         body = panel.query_one("#body", Static)
         for _ in range(7):

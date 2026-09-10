@@ -7,18 +7,21 @@ import httpx
 import pytest
 
 from smorg.auth.store import Credentials
-from smorg.core.contract import Malformed
+from smorg.core.contract import Item, Malformed
 from smorg.integrations.linear.source import (
     COMMENT_BODY_LIMIT,
     DESCRIPTION_LIMIT,
     FIELDS,
     SUB_ISSUE_FIELDS,
+    VIEWER_ID,
     Issue,
     Link,
+    Viewer,
     fetch,
 )
 
 PAGES = json.loads((Path(__file__).parent / "fixtures" / "linear_issues.json").read_text())
+VIEWER = json.loads((Path(__file__).parent / "fixtures" / "linear_viewer.json").read_text())
 CREDENTIALS = Credentials("token-abc", None, None, "read")
 
 
@@ -37,6 +40,8 @@ def paging_handler(requests: list) -> Callable[[httpx.Request], httpx.Response]:
         if body["method"] != "tools/call":
             return httpx.Response(202)
         requests.append(body["params"]["arguments"])
+        if body["params"]["name"] == "get_user":
+            return sse(VIEWER)
         if body["params"]["arguments"].get("cursor"):
             page = "page2"
         else:
@@ -46,24 +51,28 @@ def paging_handler(requests: list) -> Callable[[httpx.Request], httpx.Response]:
     return handler
 
 
-def fetch_with(handler) -> tuple[Issue, ...]:
+def fetch_with(handler) -> tuple[Item, ...]:
     return fetch(CREDENTIALS, httpx.Client(transport=httpx.MockTransport(handler)))
 
 
+def issues_of(items) -> list[Issue]:
+    return [item for item in items if isinstance(item, Issue)]
+
+
 def test_completed_issues_are_filtered_out():
-    issues = fetch_with(paging_handler([]))
+    issues = issues_of(fetch_with(paging_handler([])))
     assert [issue.id for issue in issues] == ["INFRENG-446", "INFRENG-467"]
 
 
 def test_issues_are_sorted_by_updated_at_descending():
-    issues = fetch_with(paging_handler([]))
+    issues = issues_of(fetch_with(paging_handler([])))
     assert [issue.updated_at for issue in issues] == sorted(
         (issue.updated_at for issue in issues), reverse=True
     )
 
 
 def test_fields_are_mapped_onto_the_item():
-    first = fetch_with(paging_handler([]))[0]
+    first = issues_of(fetch_with(paging_handler([])))[0]
 
     assert first.title == "Dual-write new_id on OrganizationMemberTeam writes"
     assert first.status == "In Review"
@@ -78,24 +87,29 @@ def test_fields_are_mapped_onto_the_item():
 def test_pagination_follows_the_cursor():
     seen: list = []
     fetch_with(paging_handler(seen))
+    issue_requests = [arguments for arguments in seen if "assignee" in arguments]
 
-    assert len(seen) == 2
-    assert seen[0].get("cursor") is None
-    assert seen[1]["cursor"] == "cursor-1"
+    assert len(issue_requests) == 2
+    assert issue_requests[0].get("cursor") is None
+    assert issue_requests[1]["cursor"] == "cursor-1"
 
 
 def test_only_the_declared_fields_are_requested():
     seen: list = []
     fetch_with(paging_handler(seen))
+    issue_requests = [arguments for arguments in seen if "assignee" in arguments]
 
-    assert seen[0]["fields"] == list(FIELDS)
-    assert seen[0]["assignee"] == "me"
+    assert issue_requests[0]["fields"] == list(FIELDS)
+    assert issue_requests[0]["assignee"] == "me"
 
 
 def test_a_missing_field_is_malformed_not_a_key_error():
     def handler(request):
-        if json.loads(request.content)["method"] != "tools/call":
+        body = json.loads(request.content)
+        if body["method"] != "tools/call":
             return httpx.Response(202)
+        if body["params"]["name"] == "get_user":
+            return sse(VIEWER)
         return sse({"issues": [{"id": "ENG-1"}], "hasNextPage": False})
 
     with pytest.raises(Malformed):
@@ -104,8 +118,11 @@ def test_a_missing_field_is_malformed_not_a_key_error():
 
 def test_an_unparseable_timestamp_is_malformed():
     def handler(request):
-        if json.loads(request.content)["method"] != "tools/call":
+        body = json.loads(request.content)
+        if body["method"] != "tools/call":
             return httpx.Response(202)
+        if body["params"]["name"] == "get_user":
+            return sse(VIEWER)
         broken = json.loads(json.dumps(PAGES["page1"]))
         broken["issues"][0]["updatedAt"] = "yesterday"
         broken["hasNextPage"] = False
@@ -117,8 +134,11 @@ def test_an_unparseable_timestamp_is_malformed():
 
 def test_an_issue_that_is_not_an_object_is_malformed():
     def handler(request):
-        if json.loads(request.content)["method"] != "tools/call":
+        body = json.loads(request.content)
+        if body["method"] != "tools/call":
             return httpx.Response(202)
+        if body["params"]["name"] == "get_user":
+            return sse(VIEWER)
         return sse({"issues": ["not an object"], "hasNextPage": False})
 
     with pytest.raises(Malformed):
@@ -127,8 +147,11 @@ def test_an_issue_that_is_not_an_object_is_malformed():
 
 def test_a_null_title_is_malformed_not_a_crash():
     def handler(request):
-        if json.loads(request.content)["method"] != "tools/call":
+        body = json.loads(request.content)
+        if body["method"] != "tools/call":
             return httpx.Response(202)
+        if body["params"]["name"] == "get_user":
+            return sse(VIEWER)
         broken = json.loads(json.dumps(PAGES["page1"]))
         broken["issues"][0]["title"] = None
         broken["hasNextPage"] = False
@@ -140,8 +163,11 @@ def test_a_null_title_is_malformed_not_a_crash():
 
 def test_a_non_string_team_is_malformed():
     def handler(request):
-        if json.loads(request.content)["method"] != "tools/call":
+        body = json.loads(request.content)
+        if body["method"] != "tools/call":
             return httpx.Response(202)
+        if body["params"]["name"] == "get_user":
+            return sse(VIEWER)
         broken = json.loads(json.dumps(PAGES["page1"]))
         broken["issues"][0]["team"] = {"id": "T1", "name": "Infra"}
         broken["hasNextPage"] = False
@@ -153,12 +179,51 @@ def test_a_non_string_team_is_malformed():
 
 def test_pagination_stops_at_a_page_limit():
     def handler(request):
-        if json.loads(request.content)["method"] != "tools/call":
+        body = json.loads(request.content)
+        if body["method"] != "tools/call":
             return httpx.Response(202)
+        if body["params"]["name"] == "get_user":
+            return sse(VIEWER)
         # Always claims another page: without a bound this would never end.
         return sse({"issues": [], "hasNextPage": True, "cursor": "forever"})
 
-    assert fetch_with(handler) == ()
+    assert issues_of(fetch_with(handler)) == []
+
+
+def test_the_viewer_rides_first_in_the_fetched_items():
+    items = fetch_with(paging_handler([]))
+    viewer = items[0]
+    assert isinstance(viewer, Viewer)
+    assert viewer.id == VIEWER_ID
+    assert (viewer.name, viewer.handle) == ("Lucas Delvoye", "lucasdelvoye")
+    assert [issue.id for issue in issues_of(items)] == ["INFRENG-446", "INFRENG-467"]
+
+
+def test_a_viewer_without_a_display_name_goes_by_name():
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if body["method"] != "tools/call":
+            return httpx.Response(202)
+        if body["params"]["name"] == "get_user":
+            return sse({"name": "Lucas Delvoye"})
+        return sse(PAGES["page1"])
+
+    viewer = fetch_with(handler)[0]
+    assert isinstance(viewer, Viewer)
+    assert viewer.handle == "Lucas Delvoye"
+
+
+def test_a_viewer_without_a_name_is_malformed():
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if body["method"] != "tools/call":
+            return httpx.Response(202)
+        if body["params"]["name"] == "get_user":
+            return sse({"displayName": "nobody"})
+        return sse(PAGES["page1"])
+
+    with pytest.raises(Malformed):
+        fetch_with(handler)
 
 
 def counting_handler(methods: list[str]) -> Callable[[httpx.Request], httpx.Response]:
@@ -167,6 +232,8 @@ def counting_handler(methods: list[str]) -> Callable[[httpx.Request], httpx.Resp
         methods.append(body["method"])
         if body["method"] != "tools/call":
             return httpx.Response(202)
+        if body["params"]["name"] == "get_user":
+            return sse(VIEWER)
         page = json.loads(json.dumps(PAGES["page1"]))
         page["hasNextPage"] = False
         return sse(page)
@@ -181,7 +248,7 @@ def test_the_second_fetch_skips_the_handshake():
     fetch_with(handler)
 
     assert methods.count("initialize") == 1
-    assert methods.count("tools/call") == 2
+    assert methods.count("tools/call") == 4
 
 
 def test_a_failure_after_a_skipped_handshake_reinitializes_and_retries_once():
@@ -193,21 +260,23 @@ def test_a_failure_after_a_skipped_handshake_reinitializes_and_retries_once():
         methods.append(body["method"])
         if body["method"] != "tools/call":
             return httpx.Response(202)
-        # The 2nd tools/call ever is the warm fetch's first attempt: the cold
-        # fetch's own initialize also leaves methods.count("initialize") == 1
-        # by the time it makes *its* first tools/call, so that count can't
-        # tell the two apart — count tools/call attempts instead.
-        if failures["remaining"] and methods.count("tools/call") == 2:
+        # The 3rd tools/call ever is the warm fetch's first attempt: the cold fetch's
+        # get_user and list_issues calls are the first two, and methods.count("initialize")
+        # can't tell cold and warm apart by the time of their first tools/call, so count
+        # tools/call attempts instead.
+        if failures["remaining"] and methods.count("tools/call") == 3:
             failures["remaining"] -= 1
             return httpx.Response(400, text="session required")
+        if body["params"]["name"] == "get_user":
+            return sse(VIEWER)
         page = json.loads(json.dumps(PAGES["page1"]))
         page["hasNextPage"] = False
         return sse(page)
 
     fetch_with(handler)  # cold: full handshake
-    issues = fetch_with(handler)  # warm: first call 400s, must recover
+    items = fetch_with(handler)  # warm: first call 400s, must recover
 
-    assert issues  # the retry succeeded
+    assert items  # the retry succeeded
     assert methods.count("initialize") == 2
 
 

@@ -160,6 +160,14 @@ class Panel(Vertical):
     def show_fetch_phase(self, label: str) -> None:
         """A fetch phase began; overridden by a panel that shows progress. The base shows none."""
 
+    def fetch_started(self) -> None:
+        """A fetch for this panel began; overridden by a panel that shows it. The base shows
+        none.
+        """
+
+    def fetch_finished(self) -> None:
+        """The fetch ended, with or without fresh items; overridden alongside fetch_started."""
+
     def _terminal_background(self) -> tuple[int, int, int] | None:
         return widget_background(self)
 

@@ -15,6 +15,7 @@ from smorg.integrations.github.panel import GitHubPanel
 from smorg.integrations.github.views import GitHubView
 from smorg.integrations.linear.panel import LinearPanel
 from smorg.integrations.linear.source import Issue
+from smorg.integrations.linear.views import LinearView
 from smorg.shell.app import SmorgApp
 from smorg.shell.detail_pane import SplitDetailPanel
 from smorg.shell.help import HelpOverlay
@@ -286,6 +287,8 @@ async def test_switching_tabs_focuses_the_panel_so_arrow_keys_work(monkeypatch):
     async with app.run_test() as pilot:
         await pilot.press("l")
         await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
         await pilot.press("down")
         await pilot.pause()
         panel = app.query_one(LinearPanel)
@@ -340,6 +343,8 @@ async def test_opening_an_item_clears_its_change_mark(monkeypatch):
         panel = app.query_one(LinearPanel)
         assert panel.seen.is_changed("linear", issues[0]) is True
 
+        await pilot.press("enter")
+        await pilot.pause()
         await pilot.press("o")
         await pilot.pause()
 
@@ -453,6 +458,8 @@ async def test_question_mark_opens_the_active_tabs_deduped_key_reference():
     app = SmorgApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
         await pilot.press("?")
         await pilot.pause()
 
@@ -519,6 +526,8 @@ async def test_help_overlay_content_is_actually_rendered_at_a_real_size():
     """
     app = SmorgApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
         await pilot.pause()
         await pilot.press("?")
         await pilot.pause()
@@ -769,6 +778,7 @@ async def test_a_detail_request_round_trips_through_the_worker(monkeypatch):
         panel = app.query_one(LinearPanel)
         panel.items = (issue("ENG-1"),)
         panel.state = PanelState.READY
+        panel.show_view(LinearView.ISSUES)
         await pilot.pause()
         await pilot.press("enter")
         await pilot.app.workers.wait_for_complete()
@@ -793,6 +803,7 @@ async def test_a_failed_detail_fetch_lands_in_the_region_not_the_list(monkeypatc
         panel = app.query_one(LinearPanel)
         panel.items = (issue("ENG-1"),)
         panel.state = PanelState.READY
+        panel.show_view(LinearView.ISSUES)
         await pilot.pause()
         await pilot.press("enter")
         await pilot.app.workers.wait_for_complete()
@@ -824,6 +835,7 @@ async def test_an_integration_without_fetch_detail_reports_no_detail_view(monkey
         panel = app.query_one(LinearPanel)
         panel.items = (issue("ENG-1"),)
         panel.state = PanelState.READY
+        panel.show_view(LinearView.ISSUES)
         await pilot.pause()
         await pilot.press("enter")
         await pilot.app.workers.wait_for_complete()
@@ -958,6 +970,8 @@ async def test_u_marks_only_the_selected_item_unseen(monkeypatch):
     async with app.run_test() as pilot:
         await pilot.pause()
         panel = app.query_one(LinearPanel)
+        await pilot.press("enter")
+        await pilot.pause()
         await pilot.press("m")
         await pilot.pause()
         assert panel.seen.is_changed("linear", issues[0]) is False
@@ -1003,6 +1017,8 @@ async def test_a_failed_mark_unseen_save_notifies_instead_of_crashing(monkeypatc
     )
     app = SmorgApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
         await pilot.pause()
         await pilot.press("u")
         await pilot.pause()
@@ -1146,6 +1162,48 @@ async def test_r_with_declared_phases_reports_each_one_in_order(monkeypatch):
 
     assert phase_calls == [0, 1, 2]
     assert panel_labels == ["alpha", "beta", "gamma"]
+
+
+class _HookPanel(Panel):
+    def __init__(self) -> None:
+        super().__init__()
+        self.hooks: list[str] = []
+
+    def fetch_started(self) -> None:
+        self.hooks.append("started")
+
+    def fetch_finished(self) -> None:
+        self.hooks.append("finished")
+
+
+class _HookIntegration:
+    def __init__(self) -> None:
+        self.manifest = _fake_manifest()
+        self.panel_class = _HookPanel
+
+    def fetch(self, credentials, http):
+        return (item(),)
+
+
+@pytest.mark.asyncio
+async def test_a_fetch_brackets_itself_with_the_panel_hooks_and_a_fresh_skip_calls_neither(
+    monkeypatch,
+):
+    _stub_credentials(monkeypatch)
+    monkeypatch.setattr(
+        "smorg.shell.app.get_integration", lambda integration_id: _HookIntegration()
+    )
+    app = SmorgApp(tabs=(TabConfig("linear"),))
+    async with app.run_test() as pilot:
+        await pilot.app.workers.wait_for_complete()
+        await pilot.pause()
+        panel = pilot.app.query_one(_HookPanel)
+        assert panel.hooks == ["started", "finished"]
+
+        app.refresh_tab("linear", panel)
+        await pilot.app.workers.wait_for_complete()
+        await pilot.pause()
+        assert panel.hooks == ["started", "finished"]
 
 
 class _IndicatorHarness(App[None]):
