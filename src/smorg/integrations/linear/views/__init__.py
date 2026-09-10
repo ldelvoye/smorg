@@ -6,5 +6,6 @@ from enum import StrEnum
 
 
 class LinearView(StrEnum):
+    MENU = "menu"
     ISSUES = "issues"
     ISSUE = "issue"

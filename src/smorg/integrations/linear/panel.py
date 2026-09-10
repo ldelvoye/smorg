@@ -5,14 +5,18 @@ from __future__ import annotations
 from textual.app import ComposeResult
 
 from smorg.integrations.linear.navigation import Target, Trail, issue_of_target
-from smorg.integrations.linear.palette import accent_for_background
-from smorg.integrations.linear.source import Issue
+from smorg.integrations.linear.palette import Glow, accent_for_background, glow_for_background
+from smorg.integrations.linear.source import Issue, Viewer, _issue_url_base
 from smorg.integrations.linear.views import LinearView
 from smorg.integrations.linear.views.issue import LinearIssueView
 from smorg.integrations.linear.views.issues import LinearIssues
+from smorg.integrations.linear.views.menu import LinearMenu
 from smorg.shell.view_host import HostedView, ViewHostPanel
 
+_LINEAR_HOME = "https://linear.app"
+
 _VIEW_CLASSES: dict[LinearView, type[HostedView]] = {
+    LinearView.MENU: LinearMenu,
     LinearView.ISSUES: LinearIssues,
     LinearView.ISSUE: LinearIssueView,
 }
@@ -24,7 +28,7 @@ class LinearPanel(ViewHostPanel[LinearView]):
     """
 
     def __init__(self) -> None:
-        super().__init__(LinearView.ISSUES)
+        super().__init__(LinearView.MENU)
         self.trail = Trail()
 
     def view_classes(self) -> dict[LinearView, type[HostedView]]:
@@ -34,13 +38,33 @@ class LinearPanel(ViewHostPanel[LinearView]):
         """Linear's brand indigo, picked to sit on this terminal's background."""
         return accent_for_background(self._terminal_background())
 
+    def glow(self) -> Glow:
+        return glow_for_background(self._terminal_background())
+
     @property
     def viewed(self) -> Issue | None:
         return self.trail.current()
 
     def compose(self) -> ComposeResult:
+        yield LinearMenu(self)
         yield LinearIssues(self)
         yield LinearIssueView(self)
+
+    def fetch_started(self) -> None:
+        if not self.is_mounted:
+            return
+        self._menu().fetch_started()
+
+    def fetch_finished(self) -> None:
+        if not self.is_mounted:
+            return
+        self._menu().fetch_finished()
+
+    def show_view(self, view: LinearView) -> None:
+        super().show_view(view)
+        if view is not LinearView.ISSUES or not self.is_mounted:
+            return
+        self._menu().acknowledge_changes()
 
     def open_issue(self, issue: Issue, mark: bool = True) -> None:
         """Show one issue full screen on top of the trail; its detail loads while the header
@@ -94,11 +118,36 @@ class LinearPanel(ViewHostPanel[LinearView]):
     def _issue_view(self) -> LinearIssueView:
         return self.query_one(LinearIssueView)
 
+    def _menu(self) -> LinearMenu:
+        return self.query_one(LinearMenu)
+
     def issues(self) -> tuple[Issue, ...]:
         issues = [item for item in self.items if isinstance(item, Issue)]
         return tuple(issues)
 
+    def viewer(self) -> Viewer | None:
+        for item in self.items:
+            if isinstance(item, Viewer):
+                return item
+        return None
+
+    def home_url(self) -> str:
+        issues = self.issues()
+        if not issues:
+            return _LINEAR_HOME
+        url_base = _issue_url_base(issues[0].url)
+        if not url_base:
+            return _LINEAR_HOME
+        return url_base.removesuffix("issue/")
+
+    def mark_all_seen(self) -> None:
+        self.seen.mark_all_seen(self.integration_id, self.issues())
+        self._save_seen()
+        self.refresh()
+
     def selected_item(self) -> Issue | None:
+        if self.active_view is LinearView.MENU:
+            return None
         if self.active_view is LinearView.ISSUE:
             return self.viewed
         if not self.is_mounted:

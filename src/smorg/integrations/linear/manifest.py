@@ -11,7 +11,7 @@ from smorg.auth.oauth import DiscoveredProvider, OAuthMethod
 from smorg.auth.store import Credentials
 from smorg.core.contract import Action, ActionClass, AuthPath, Item, Manifest
 from smorg.integrations.linear.panel import LinearPanel
-from smorg.integrations.linear.source import Issue, IssueDetail, fetch, fetch_detail
+from smorg.integrations.linear.source import IssueDetail, fetch, fetch_detail
 
 METHOD = OAuthMethod(
     provider=DiscoveredProvider(
@@ -35,7 +35,7 @@ class LinearIntegration:
     manifest: Manifest = MANIFEST
     panel_class: type[LinearPanel] = LinearPanel
 
-    def fetch(self, credentials: Credentials, http: httpx.Client) -> tuple[Issue, ...]:
+    def fetch(self, credentials: Credentials, http: httpx.Client) -> tuple[Item, ...]:
         return fetch(credentials, http)
 
     def fetch_detail(self, credentials: Credentials, http: httpx.Client, item: Item) -> IssueDetail:
