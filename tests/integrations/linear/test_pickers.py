@@ -5,6 +5,7 @@ from textual.widgets import Static
 
 from smorg.integrations.linear.navigation import Target
 from smorg.integrations.linear.source import ParentSummary, RelatedIssue, SubIssue
+from smorg.integrations.linear.views import LinearView
 from smorg.integrations.linear.views.pickers import OpenFromPicker, TrailPicker
 
 from .helpers import PanelHarness, detail, issue, panel_with
@@ -25,6 +26,7 @@ async def test_enter_opens_the_picker_and_choosing_a_row_opens_that_issue(monkey
     monkeypatch.setattr("smorg.core.state.SeenState.save", lambda self: None)
     panel = panel_with(issue("ENG-1"))
     async with PanelHarness(panel).run_test(size=(120, 40)) as pilot:
+        panel.show_view(LinearView.ISSUES)
         await pilot.press("enter")
         await pilot.pause()
         panel.show_detail(panel.detail_key(issue("ENG-1")), _full_detail())
@@ -55,6 +57,7 @@ async def test_enter_toasts_instead_of_opening_when_there_is_nothing_or_no_detai
     )
     panel = panel_with(issue("ENG-1"))
     async with PanelHarness(panel).run_test(size=(120, 40)) as pilot:
+        panel.show_view(LinearView.ISSUES)
         await pilot.press("enter")
         await pilot.pause()
         await pilot.press("enter")
@@ -70,6 +73,7 @@ async def test_enter_toasts_instead_of_opening_when_there_is_nothing_or_no_detai
 
     fresh_panel = panel_with(issue("ENG-1"))
     async with PanelHarness(fresh_panel).run_test(size=(120, 40)) as pilot:
+        fresh_panel.show_view(LinearView.ISSUES)
         await pilot.press("enter")
         await pilot.pause()
         fresh_panel.show_detail_error(fresh_panel.detail_key(issue("ENG-1")), "linear is down")
@@ -84,6 +88,7 @@ async def test_backspace_opens_the_trail_picker_preselected_on_the_previous_page
     monkeypatch.setattr("smorg.core.state.SeenState.save", lambda self: None)
     panel = panel_with(issue("ENG-1"))
     async with PanelHarness(panel).run_test(size=(120, 40)) as pilot:
+        panel.show_view(LinearView.ISSUES)
         await pilot.press("enter")
         await pilot.pause()
         panel.open_target(

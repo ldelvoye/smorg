@@ -1,4 +1,4 @@
-"""Linear's status discs, status colors, and priority icon, shared by the list and issue views."""
+"""Linear's status discs, colors, ranking and priority icon, shared by the Linear views."""
 
 from __future__ import annotations
 
@@ -14,6 +14,18 @@ DISC_DONE = "●"
 DISC_BACKLOG = "◌"
 
 PRIORITY_WIDTH = 3
+
+# Ordered by actionability: doing, shepherding, queued, stuck.
+_STATUS_RANKS = {"in progress": 0, "in review": 1, "todo": 3, "blocked": 5}
+
+
+def status_rank(status: str, status_type: str) -> int:
+    known = _STATUS_RANKS.get(status.casefold())
+    if known is not None:
+        return known
+    if status_type == "started":
+        return 2
+    return 4
 
 
 def status_disc(status: str, status_type: str) -> str:

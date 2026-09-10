@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -60,6 +60,18 @@ class Issue(Item):
     team: str
     priority: str
     project: str
+
+
+VIEWER_ID = "linear-viewer"
+_VIEWER_STAMP = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+@dataclass(frozen=True)
+class Viewer(Item):
+    """The signed-in user, riding in the item tuple the way GitHub's profile does."""
+
+    name: str
+    handle: str
 
 
 @dataclass(frozen=True)
@@ -132,8 +144,11 @@ class IssueDetail:
     comments: Newest[Comment]
 
 
-def fetch(credentials: Credentials, http: httpx.Client) -> tuple[Issue, ...]:
+def fetch(credentials: Credentials, http: httpx.Client) -> tuple[Item, ...]:
     session = McpSession(ENDPOINT, credentials.access_token, http)
+
+    viewer_payload = session.call("get_user", {"query": "me"})
+    viewer = _viewer_of(viewer_payload)
 
     issues: list[Issue] = []
     cursor: str | None = None
@@ -159,7 +174,9 @@ def fetch(credentials: Credentials, http: httpx.Client) -> tuple[Issue, ...]:
 
     active = [issue for issue in issues if issue.status_type in ACTIVE_STATUS_TYPES]
     newest_first = sorted(active, key=lambda issue: issue.updated_at, reverse=True)
-    return tuple(newest_first)
+    items: list[Item] = [viewer]
+    items.extend(newest_first)
+    return tuple(items)
 
 
 def _priority_of(raw: dict[str, Any]) -> str:
@@ -184,6 +201,24 @@ def _issue_of(raw: Any) -> Issue:
         team=optional_string(raw, "team"),
         priority=_priority_of(raw),
         project=optional_string(raw, "project"),
+    )
+
+
+def _viewer_of(raw: Any) -> Viewer:
+    if not isinstance(raw, dict):
+        raise Malformed("get_user returned no user")
+    name = required_string(raw, "name")
+    display_name = optional_string(raw, "displayName")
+    if display_name:
+        handle = display_name
+    else:
+        handle = name
+    return Viewer(
+        id=VIEWER_ID,
+        updated_at=_VIEWER_STAMP,
+        url="https://linear.app",
+        name=name,
+        handle=handle,
     )
 
 

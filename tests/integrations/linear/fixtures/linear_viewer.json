@@ -1,0 +1,8 @@
+{
+  "id": "f5f6e483-127c-4dbb-8311-8d5f2880ff64",
+  "name": "Lucas Delvoye",
+  "email": "lucas@example.com",
+  "displayName": "lucasdelvoye",
+  "isActive": true,
+  "teams": [{"id": "73e5c003-ee46-4347-9520-c06a712bc383", "name": "Infrastructure Engineering", "key": "INFRENG"}]
+}

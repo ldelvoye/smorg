@@ -6,11 +6,12 @@ from datetime import UTC, datetime
 
 from textual.app import App, ComposeResult
 
-from smorg.core.contract import Newest
+from smorg.core.contract import Item, Newest
 from smorg.core.state import SeenState
 from smorg.integrations.linear.panel import LinearPanel
-from smorg.integrations.linear.source import Issue, IssueDetail
+from smorg.integrations.linear.source import VIEWER_ID, Issue, IssueDetail, Viewer
 from smorg.integrations.linear.views.issues import LinearIssues
+from smorg.integrations.linear.views.menu import LinearMenu
 from smorg.shell.panel import PanelState
 
 NOW = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
@@ -27,6 +28,16 @@ def issue(identifier: str = "ENG-1", status: str = "In Review") -> Issue:
         team="Infra",
         priority="High",
         project="",
+    )
+
+
+def viewer(name: str = "Lucas Delvoye", handle: str = "lucas") -> Viewer:
+    return Viewer(
+        id=VIEWER_ID,
+        updated_at=datetime(1970, 1, 1, tzinfo=UTC),
+        url="https://linear.app",
+        name=name,
+        handle=handle,
     )
 
 
@@ -56,17 +67,25 @@ def detail(**overrides) -> IssueDetail:
     return IssueDetail(**(fields | overrides))
 
 
-def panel_with(*issues: Issue, seen: SeenState | None = None) -> LinearPanel:
+def panel_with(*items: Item, seen: SeenState | None = None) -> LinearPanel:
     panel = LinearPanel()
     panel.state = PanelState.READY
-    panel.items = issues
-    panel.seen = seen or SeenState({})
+    panel.items = items
+    if seen is None:
+        panel.seen = SeenState({})
+    else:
+        panel.seen = seen
     panel.integration_id = "linear"
     return panel
 
 
 def issues_with(*issues: Issue, seen: SeenState | None = None) -> LinearIssues:
     return LinearIssues(panel_with(*issues, seen=seen))
+
+
+def menu_with(*issues: Issue, seen: SeenState | None = None) -> LinearMenu:
+    panel = panel_with(viewer(), *issues, seen=seen)
+    return LinearMenu(panel)
 
 
 class PanelHarness(App[None]):
