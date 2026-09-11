@@ -1,0 +1,74 @@
+{
+  "project": {
+    "id": "255a8298-30dd-4532-a4ab-d4cef22152ee",
+    "name": "Improve Redis Scalability",
+    "summary": "",
+    "url": "https://linear.app/x/project/improve-redis-scalability-0344382483a2",
+    "updatedAt": "2026-09-10T19:55:43.631Z",
+    "startDate": "2026-08-04",
+    "targetDate": "2027-01-31",
+    "targetDateResolution": "halfYear",
+    "priority": {"value": 2, "name": "High"},
+    "lead": {"id": "ff8ae644-b803-4b0e-bd0c-75ff43b770f7", "name": "Mark Story"},
+    "status": {"id": "d34082de-b030-4b0f-aa46-5daef4f94e76", "name": "In Progress", "type": "started"},
+    "teams": [{"id": "73e5c003", "name": "Infrastructure Engineering", "key": "INFRENG"}, {"id": "f6928780", "name": "Production Engineering", "key": "PRODENG"}],
+    "description": "Goal\n\nRedis is the last shared component with no failover story. See <issue id=\"i1\" href=\"https://linear.app/x/issue/INFRENG-1/x\">INFRENG-1</issue>.",
+    "initiatives": [{"id": "i1", "name": "It is reliable and scalable"}],
+    "milestones": [
+      {"id": "a116617a", "name": "Reduce \"forever\" data in Redis", "description": "Cut off writes going through the old pipeline.", "targetDate": "2026-10-31", "progress": "52%"},
+      {"id": "a3e7b63f", "name": "Move workloads off of redis-blaster", "description": "Migrate then tear down.", "targetDate": null, "progress": "n/a"}
+    ]
+  },
+  "issues": {
+    "issues": [
+      {
+        "id": "INFRENG-465",
+        "title": "Cut over reads to the new cluster",
+        "status": "In Progress",
+        "statusType": "started",
+        "priority": {"value": 2, "name": "High"},
+        "url": "https://linear.app/x/issue/INFRENG-465/cut-over-reads",
+        "assignee": {"id": "u1", "name": "Lucas Delvoye"},
+        "parentId": "INFRENG-472"
+      },
+      {
+        "id": "INFRENG-472",
+        "title": "Migrate off redis-blaster",
+        "status": "In Progress",
+        "statusType": "started",
+        "priority": {"value": 2, "name": "High"},
+        "url": "https://linear.app/x/issue/INFRENG-472/migrate-off-redis-blaster",
+        "assignee": {"id": "u2", "name": "Mark Story"}
+      },
+      {
+        "id": "INFRENG-613",
+        "title": "Document the failover runbook",
+        "status": "Todo",
+        "statusType": "unstarted",
+        "priority": {"value": 0, "name": "No priority"},
+        "url": "https://linear.app/x/issue/INFRENG-613/document-the-failover-runbook",
+        "assignee": null
+      },
+      {
+        "id": "INFRENG-501",
+        "title": "Backfill forever keys with a TTL",
+        "status": "Done",
+        "statusType": "completed",
+        "priority": {"value": 3, "name": "Medium"},
+        "url": "https://linear.app/x/issue/INFRENG-501/backfill-forever-keys",
+        "assignee": {"id": "u1", "name": "Lucas Delvoye"},
+        "parentId": "INFRENG-999"
+      },
+      {
+        "id": "INFRENG-502",
+        "title": "Add a redis-blaster shutdown checklist",
+        "status": "Backlog",
+        "statusType": "backlog",
+        "priority": {"value": 4, "name": "Low"},
+        "url": "https://linear.app/x/issue/INFRENG-502/shutdown-checklist",
+        "assignee": {"id": "u2", "name": "Mark Story"}
+      }
+    ],
+    "hasNextPage": false
+  }
+}

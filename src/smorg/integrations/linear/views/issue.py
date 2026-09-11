@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import webbrowser
-from datetime import date, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from rich.console import Group, RenderableType
@@ -15,8 +15,8 @@ from textual.binding import Binding
 from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Static
 
-from smorg.auth.store import now
 from smorg.core.contract import Newest
+from smorg.integrations.linear.dates import target_label
 from smorg.integrations.linear.glyphs import format_priority, status_color, status_disc
 from smorg.integrations.linear.navigation import (
     Target,
@@ -45,7 +45,7 @@ from smorg.shell.view_host import HostedView
 if TYPE_CHECKING:
     from smorg.integrations.linear.panel import LinearPanel
 
-_BACK_HINT_ROOT = "‹ esc — issues"
+_BACK_HINT_PREFIX = "‹ esc — "
 _BACK_HINT_GAP = 3
 NARROW_BELOW = 90
 SIDEBAR_WIDTH = 34
@@ -87,12 +87,7 @@ def _format_header(
 
 
 def _format_due(iso_date: str) -> str:
-    """ "2026-09-30" -> "Sep 30" this year, "Jan 31, 2027" in any other."""
-    due = date.fromisoformat(iso_date)
-    month_day = f"{due.strftime('%b')} {due.day}"
-    if due.year == now().year:
-        return month_day
-    return f"{month_day}, {due.year}"
+    return target_label(iso_date, "day")
 
 
 def _format_row(glyph: str, glyph_style: str, value: str, value_style: str = "") -> Text:
@@ -424,10 +419,11 @@ class LinearIssueView(Horizontal, HostedView):
         reading.scroll_to(y=visit.scroll_y, animate=False)
 
     def _back_hint(self) -> str:
-        ids = self.panel.trail_ids()
-        if len(ids) < 2:
-            return _BACK_HINT_ROOT
-        return f"‹ esc — {ids[-2]}"
+        labels = self.panel.trail_labels()
+        if len(labels) < 2:
+            root_label = str(self.panel.trail.root)
+            return f"{_BACK_HINT_PREFIX}{root_label}"
+        return f"{_BACK_HINT_PREFIX}{labels[-2]}"
 
     def _budget(self) -> int:
         if not self.is_mounted:
@@ -483,12 +479,13 @@ class LinearIssueView(Horizontal, HostedView):
 
     def _format_trail_lines(self, narrow: bool) -> list[RenderableType]:
         hint = Text(self._back_hint(), style="dim")
-        ids = self.panel.trail_ids()
+        labels = self.panel.trail_labels()
+        root_label = str(self.panel.trail.root)
         if narrow:
-            trail = format_trail(ids, self._budget())
+            trail = format_trail(labels, self._budget(), root_label)
             return [hint, trail]
         budget = self._budget() - hint.cell_len - _BACK_HINT_GAP
-        trail = format_trail(ids, budget)
+        trail = format_trail(labels, budget, root_label)
         line = Table.grid(expand=True)
         line.add_column(no_wrap=True)
         line.add_column(justify="right", no_wrap=True, overflow="ellipsis")
@@ -552,7 +549,8 @@ class LinearIssueView(Horizontal, HostedView):
     def action_show_trail(self) -> None:
         colors = self.panel.status_colors()
         accent = self.panel.accent()
-        picker = trail_picker(self.panel.trail.visits, colors, accent)
+        root_label = str(self.panel.trail.root)
+        picker = trail_picker(self.panel.trail.visits, root_label, colors, accent)
         self.app.push_screen(picker, self._trail_picked)
 
     def _trail_picked(self, value: object | None) -> None:

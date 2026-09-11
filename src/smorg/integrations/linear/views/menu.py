@@ -86,7 +86,10 @@ _COUNT_WIDTH = 3
 _PANEL_INDENT = "   "
 _ENTER_GLYPH = "⏎"
 
-_DESTINATIONS: tuple[tuple[str, LinearView], ...] = (("issues", LinearView.ISSUES),)
+_DESTINATIONS: tuple[tuple[str, LinearView], ...] = (
+    ("issues", LinearView.ISSUES),
+    ("projects", LinearView.PROJECTS),
+)
 
 _LANDED_STATES = (PanelState.READY, PanelState.EMPTY)
 
@@ -332,30 +335,43 @@ def _format_legend(
     return rows
 
 
-def _format_projects_row() -> Text:
-    row = Text(_PANEL_INDENT)
-    row.append("projects".ljust(_LABEL_WIDTH), style="dim")
-    row.append("coming soon", style="dim")
+def _format_destination_row(label: str, count: int, selected: bool) -> Text:
+    row = Text()
+    if selected:
+        row.append(f"{SELECTED_MARK}  ", style="bold")
+        label_style = "bold"
+    else:
+        row.append(_PANEL_INDENT)
+        label_style = ""
+    row.append(label.ljust(_LABEL_WIDTH), style=label_style)
+    count_text = str(count)
+    row.append(count_text.rjust(_COUNT_WIDTH), style=label_style)
     return row
 
 
-def _format_destinations(issue_count: int, unseen: int, unseen_style: str) -> list[Text]:
-    issues_row = Text()
-    issues_row.append(f"{SELECTED_MARK}  ", style="bold")
-    issues_row.append("issues".ljust(_LABEL_WIDTH), style="bold")
-    issue_total = str(issue_count)
-    issues_row.append(issue_total.rjust(_COUNT_WIDTH), style="bold")
+def _format_destinations(
+    issue_count: int, project_count: int, unseen: int, unseen_style: str, cursor: int
+) -> list[Text]:
+    issues_row = _format_destination_row("issues", issue_count, cursor == 0)
     if unseen:
         issues_row.append(f"  {CHANGED_MARK} {unseen} unseen", style=unseen_style)
-    projects_row = _format_projects_row()
+    projects_row = _format_destination_row("projects", project_count, cursor == 1)
     return [issues_row, projects_row]
 
 
-def _format_bare_destinations(issues_style: str) -> list[Text]:
-    issues_row = Text()
-    issues_row.append(f"{SELECTED_MARK}  ", style=issues_style)
-    issues_row.append("issues", style=issues_style)
-    projects_row = _format_projects_row()
+def _format_bare_destination_row(label: str, style: str, selected: bool) -> Text:
+    row = Text()
+    if selected:
+        row.append(f"{SELECTED_MARK}  ", style=style)
+    else:
+        row.append(_PANEL_INDENT)
+    row.append(label, style=style)
+    return row
+
+
+def _format_bare_destinations(style: str, cursor: int) -> list[Text]:
+    issues_row = _format_bare_destination_row("issues", style, cursor == 0)
+    projects_row = _format_bare_destination_row("projects", style, cursor == 1)
     return [issues_row, projects_row]
 
 
@@ -370,14 +386,14 @@ def _format_tail_rows(destinations: list[Text], hint: Text) -> list[Text]:
     return tail
 
 
-def _format_loading_tail() -> list[Text]:
-    destinations = _format_bare_destinations("dim")
+def _format_loading_tail(cursor: int) -> list[Text]:
+    destinations = _format_bare_destinations("dim", cursor)
     hint = Text(f"{_PANEL_INDENT}loading…", style="dim")
     return _format_tail_rows(destinations, hint)
 
 
-def _format_error_tail() -> list[Text]:
-    destinations = _format_bare_destinations("bold")
+def _format_error_tail(cursor: int) -> list[Text]:
+    destinations = _format_bare_destinations("bold", cursor)
     hint = _format_open_hint()
     return _format_tail_rows(destinations, hint)
 
@@ -663,12 +679,12 @@ class LinearMenu(Static, HostedView):
     def _format_panel(self, accent: str, glow: Glow, elapsed: float) -> list[Text]:
         panel = self.panel
         if panel.state is PanelState.LOADING:
-            loading_tail = _format_loading_tail()
+            loading_tail = _format_loading_tail(self.destination_cursor)
             return _band_rows([], loading_tail)
         if panel.state is PanelState.ERROR:
             viewer = panel.viewer()
             error_head = _format_error_head(viewer, panel.message)
-            error_tail = _format_error_tail()
+            error_tail = _format_error_tail(self.destination_cursor)
             return _band_rows(error_head, error_tail)
         changed = self._changed()
         head = self._format_head(changed, accent, glow)
@@ -713,7 +729,10 @@ class LinearMenu(Static, HostedView):
             unseen_style = accent
         issue_count = len(issues)
         changed_count = len(changed)
-        destinations = _format_destinations(issue_count, changed_count, unseen_style)
+        project_count = len(self.panel.projects())
+        destinations = _format_destinations(
+            issue_count, project_count, changed_count, unseen_style, self.destination_cursor
+        )
         hint = _format_open_hint()
         return _format_tail_rows(destinations, hint)
 

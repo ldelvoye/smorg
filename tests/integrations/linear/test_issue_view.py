@@ -177,7 +177,7 @@ def test_the_sub_issues_card_counts_done_over_total_and_lists_children():
 
 def test_due_dates_drop_the_year_only_inside_the_current_year(monkeypatch):
     monkeypatch.setattr(
-        "smorg.integrations.linear.views.issue.now",
+        "smorg.integrations.linear.dates.now",
         lambda: datetime(2026, 9, 1, tzinfo=UTC),
     )
     assert _format_due("2026-09-30") == "Sep 30"

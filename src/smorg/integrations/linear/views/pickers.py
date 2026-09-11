@@ -8,13 +8,14 @@ from rich.text import Text
 from textual.binding import Binding
 
 from smorg.integrations.linear.navigation import (
-    TRAIL_ROOT,
     Target,
     TargetSection,
     Visit,
+    format_project_row,
     format_target_row,
     target_of_issue,
 )
+from smorg.integrations.linear.source import Issue, Project
 from smorg.shell.picker import Picker, Row, Section
 from smorg.shell.terminal_palette import StatusColors
 
@@ -64,15 +65,23 @@ class TrailPicker(Picker):
     ]
 
 
-def trail_picker(visits: list[Visit], colors: StatusColors, accent: str) -> TrailPicker:
-    """The current page first (dim), then every earlier visit, and the root `issues` last."""
+def trail_picker(
+    visits: list[Visit], root_label: str, colors: StatusColors, accent: str
+) -> TrailPicker:
+    """The current page first (dim), then every earlier visit, and the root last."""
     rows: list[Row] = []
     last = len(visits) - 1
     for index in range(last, -1, -1):
         current = index == last
-        target = target_of_issue(visits[index].issue)
-        row = format_target_row(target, colors, accent, current)
+        item = visits[index].item
+        if isinstance(item, Issue):
+            target = target_of_issue(item)
+            row = format_target_row(target, colors, accent, current)
+        elif isinstance(item, Project):
+            row = format_project_row(item, colors, accent, current)
+        else:
+            row = Text(item.id)
         rows.append((row, index))
-    rows.append((Text(TRAIL_ROOT), -1))
+    rows.append((Text(root_label), -1))
     cursor = min(1, len(rows) - 1)
     return TrailPicker("back to", [("", rows)], _TRAIL_HINT, cursor)

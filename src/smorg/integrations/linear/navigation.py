@@ -8,14 +8,18 @@ from datetime import UTC, datetime
 from rich.cells import cell_len
 from rich.text import Text
 
+from smorg.core.contract import Item
 from smorg.integrations.linear.glyphs import DISC_BACKLOG, status_color, status_disc
 from smorg.integrations.linear.source import (
     Issue,
     IssueDetail,
     ParentSummary,
+    Project,
+    ProjectIssue,
     RelatedIssue,
     SubIssue,
 )
+from smorg.integrations.linear.views import LinearView
 from smorg.shell.format import truncating
 from smorg.shell.terminal_palette import StatusColors
 
@@ -42,9 +46,10 @@ TargetSection = tuple[str, tuple[Target, ...]]
 
 @dataclass(frozen=True)
 class Visit:
-    issue: Issue
+    item: Item
     scroll_y: int = 0
     picker_cursor: int = 0
+    showing_issues: bool = False
 
 
 class Trail:
@@ -52,9 +57,10 @@ class Trail:
 
     def __init__(self) -> None:
         self.visits: list[Visit] = []
+        self.root = LinearView.ISSUES
 
-    def push(self, issue: Issue) -> None:
-        self.visits.append(Visit(issue=issue))
+    def push(self, item: Item) -> None:
+        self.visits.append(Visit(item=item))
 
     def pop(self) -> Visit | None:
         if not self.visits:
@@ -65,18 +71,23 @@ class Trail:
         """Keep visits up to and including `index`; -1 empties the trail."""
         del self.visits[index + 1 :]
 
-    def current(self) -> Issue | None:
+    def current(self) -> Item | None:
         if not self.visits:
             return None
-        return self.visits[-1].issue
+        return self.visits[-1].item
 
     def depth(self) -> int:
         return len(self.visits)
 
-    def remember(self, scroll_y: int, picker_cursor: int) -> None:
+    def remember(self, scroll_y: int, picker_cursor: int, showing_issues: bool = False) -> None:
         if not self.visits:
             return
-        self.visits[-1] = replace(self.visits[-1], scroll_y=scroll_y, picker_cursor=picker_cursor)
+        self.visits[-1] = replace(
+            self.visits[-1],
+            scroll_y=scroll_y,
+            picker_cursor=picker_cursor,
+            showing_issues=showing_issues,
+        )
 
 
 def target_of_issue(issue: Issue) -> Target:
@@ -109,6 +120,17 @@ def target_of_sub_issue(child: SubIssue) -> Target:
         status_type=child.status_type,
         priority=child.priority,
         url=child.url,
+    )
+
+
+def target_of_project_issue(issue: ProjectIssue) -> Target:
+    return Target(
+        id=issue.id,
+        title=issue.title,
+        status=issue.status,
+        status_type=issue.status_type,
+        priority=issue.priority,
+        url=issue.url,
     )
 
 
@@ -162,29 +184,35 @@ def issue_of_target(target: Target, items: tuple[Issue, ...]) -> tuple[Issue, bo
     return synthetic, False
 
 
-def format_trail(ids: tuple[str, ...], budget: int, cap: int = BREADCRUMB_CAP) -> Text:
-    """The trail fitted to `budget` columns from the right: the current id always, then earlier
-    ids while they fit (at most `cap`), the root when it still fits, `…` for anything elided.
+def format_trail(
+    labels: tuple[str, ...], budget: int, root_label: str = TRAIL_ROOT, cap: int = BREADCRUMB_CAP
+) -> Text:
+    """The trail fitted to `budget` columns from the right: the current label always, then earlier
+    labels while they fit (at most `cap`), the root when it still fits, `…` for anything elided.
     """
-    total = len(ids)
+    total = len(labels)
     if total == 0:
-        return Text(TRAIL_ROOT, style="dim")
-    shown: list[str] = [ids[-1]]
-    for earlier in reversed(ids[:-1]):
+        return Text(root_label, style="dim")
+    shown: list[str] = [labels[-1]]
+    for earlier in reversed(labels[:-1]):
         if len(shown) >= cap:
             break
-        candidate = _render(shown=[earlier, *shown], total=total, root=False, elided=True)
+        candidate = _render(
+            shown=[earlier, *shown], total=total, root=False, elided=True, root_label=root_label
+        )
         if cell_len(candidate) > budget:
             break
         shown.insert(0, earlier)
     all_shown = len(shown) == total
-    with_root = _render(shown=shown, total=total, root=True, elided=not all_shown)
+    with_root = _render(
+        shown=shown, total=total, root=True, elided=not all_shown, root_label=root_label
+    )
     if cell_len(with_root) <= budget:
         return Text(with_root, style="dim")
-    without_root = _render(shown=shown, total=total, root=False, elided=True)
+    without_root = _render(shown=shown, total=total, root=False, elided=True, root_label=root_label)
     if cell_len(without_root) <= budget:
         return Text(without_root, style="dim")
-    return Text(f"{ids[-1]} ({total})", style="dim")
+    return Text(f"{labels[-1]} ({total})", style="dim")
 
 
 def format_target_row(target: Target, colors: StatusColors, accent: str, dim_title: bool) -> Text:
@@ -207,10 +235,24 @@ def format_target_row(target: Target, colors: StatusColors, accent: str, dim_tit
     return truncating(row)
 
 
-def _render(shown: list[str], total: int, root: bool, elided: bool) -> str:
+def format_project_row(
+    project: Project, colors: StatusColors, accent: str, dim_title: bool
+) -> Text:
+    row = Text()
+    disc = status_disc(project.status, project.status_type)
+    row.append(disc, style=status_color(project.status, project.status_type, colors, accent))
+    row.append(" ")
+    if dim_title:
+        row.append(project.name, style="dim")
+    else:
+        row.append(project.name)
+    return row
+
+
+def _render(shown: list[str], total: int, root: bool, elided: bool, root_label: str) -> str:
     parts: list[str] = []
     if root:
-        parts.append(TRAIL_ROOT)
+        parts.append(root_label)
     if elided:
         parts.append(_ELLIPSIS)
     parts.extend(shown)
