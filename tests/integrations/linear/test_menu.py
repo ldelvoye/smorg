@@ -4,7 +4,7 @@ from smorg.core.state import SeenState
 from smorg.integrations.linear.views.menu import LinearMenu
 from smorg.shell.panel import PanelState
 
-from .helpers import PanelHarness, issue, menu_with, panel_with, viewer
+from .helpers import PanelHarness, issue, menu_with, panel_with, project, viewer
 
 
 def _lines(menu: LinearMenu) -> list[str]:
@@ -14,6 +14,13 @@ def _lines(menu: LinearMenu) -> list[str]:
 def _text_rows(menu: LinearMenu) -> int:
     lettered = [line for line in _lines(menu) if any(glyph.isalpha() for glyph in line)]
     return len(lettered)
+
+
+def _line_with(lines: list[str], needle: str) -> str:
+    for line in lines:
+        if needle in line:
+            return line
+    raise AssertionError(needle)
 
 
 @pytest.mark.asyncio
@@ -130,3 +137,18 @@ def test_the_sky_fills_the_room_to_the_right_of_the_panel_on_a_short_tab():
     lines = menu.content_lines_at(200, 14)
     right_edges = [line[160:] for line in lines]
     assert any(edge.strip() for edge in right_edges)
+
+
+def test_the_projects_row_counts_current_projects_and_takes_the_mark_when_selected():
+    menu = menu_with(issue("ENG-1"))
+    menu.panel.items = (viewer(), project("Redis"), project("Sudo"), issue("ENG-1"))
+    menu.tick(0.0)
+    menu.tick(3.0)
+    lines = menu.content_lines_at(100, 32)
+    issues_row = _line_with(lines, "issues")
+    projects_row = _line_with(lines, "projects")
+    assert "▸" in issues_row and "▸" not in projects_row
+    assert "projects" in projects_row and " 2" in projects_row and "coming soon" not in projects_row
+    menu.action_next_destination()
+    lines = menu.content_lines_at(100, 32)
+    assert "▸" in _line_with(lines, "projects")

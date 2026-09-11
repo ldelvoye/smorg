@@ -39,6 +39,22 @@ FIELDS = (
     "project",
 )
 
+PROJECT_FIELDS = (
+    "name",
+    "summary",
+    "url",
+    "updatedAt",
+    "startDate",
+    "targetDate",
+    "targetDateResolution",
+    "priority",
+    "lead",
+    "status",
+    "teams",
+    "milestones",
+)
+_CLOSED_PROJECT_TYPES = frozenset({"completed", "canceled"})
+
 ACTIVE_STATUS_TYPES = frozenset({"started", "unstarted"})
 
 MAX_PAGES = 10
@@ -50,6 +66,19 @@ COMMENT_BODY_LIMIT = 10_000
 
 SUB_ISSUE_FETCH_LIMIT = 50
 SUB_ISSUE_FIELDS = ("id", "title", "status", "statusType", "priority")
+
+PROJECT_ISSUE_FIELDS = (
+    "id",
+    "title",
+    "status",
+    "statusType",
+    "priority",
+    "url",
+    "assignee",
+    "parentId",
+)
+PROJECT_ISSUE_LIMIT = 250
+PROJECT_ISSUE_PAGES = 2
 
 
 @dataclass(frozen=True)
@@ -72,6 +101,30 @@ class Viewer(Item):
 
     name: str
     handle: str
+
+
+@dataclass(frozen=True)
+class Milestone:
+    name: str
+    target_date: str
+    progress: int
+
+
+@dataclass(frozen=True)
+class Project(Item):
+    """A project the viewer is a member of, with its milestones' progress."""
+
+    name: str
+    summary: str
+    status: str
+    status_type: str
+    priority: str
+    lead: str
+    teams: tuple[str, ...]
+    start_date: str
+    target_date: str
+    target_resolution: str
+    milestones: tuple[Milestone, ...]
 
 
 @dataclass(frozen=True)
@@ -144,37 +197,89 @@ class IssueDetail:
     comments: Newest[Comment]
 
 
+@dataclass(frozen=True)
+class ProjectIssue:
+    id: str
+    title: str
+    status: str
+    status_type: str
+    priority: str
+    url: str
+    assignee: str
+    parent_id: str
+
+
+@dataclass(frozen=True)
+class ProjectDetail:
+    """The project's page: its description, initiatives, milestones, and every issue."""
+
+    description: str
+    initiatives: tuple[str, ...]
+    milestones: tuple[Milestone, ...]
+    issues: tuple[ProjectIssue, ...]
+
+
+def _pages(
+    session: McpSession, tool: str, arguments: dict[str, Any], key: str, pages: int
+) -> list[Any]:
+    """Every raw entry under `key` across up to `pages` pages of `tool`, following the cursor."""
+    entries: list[Any] = []
+    cursor = ""
+    for _ in range(pages):
+        page_arguments = dict(arguments)
+        if cursor:
+            page_arguments["cursor"] = cursor
+        payload = session.call(tool, page_arguments)
+        raw_entries = payload.get(key)
+        if not isinstance(raw_entries, list):
+            raise Malformed(f"{tool} returned no {key} list")
+        entries.extend(raw_entries)
+        if not payload.get("hasNextPage"):
+            break
+        cursor = payload.get("cursor")
+        if not isinstance(cursor, str) or not cursor:
+            break
+    return entries
+
+
+def _fetch_projects(session: McpSession) -> list[Project]:
+    arguments: dict[str, Any] = {
+        "member": "me",
+        "includeMilestones": True,
+        "limit": 50,
+        "orderBy": "updatedAt",
+        "fields": list(PROJECT_FIELDS),
+    }
+    raw_projects = _pages(session, "list_projects", arguments, "projects", MAX_PAGES)
+    projects: list[Project] = []
+    for raw in raw_projects:
+        project = _project_of(raw)
+        if project.status_type in _CLOSED_PROJECT_TYPES:
+            continue
+        projects.append(project)
+    return projects
+
+
 def fetch(credentials: Credentials, http: httpx.Client) -> tuple[Item, ...]:
     session = McpSession(ENDPOINT, credentials.access_token, http)
 
     viewer_payload = session.call("get_user", {"query": "me"})
     viewer = _viewer_of(viewer_payload)
 
-    issues: list[Issue] = []
-    cursor: str | None = None
-    for _ in range(MAX_PAGES):
-        arguments: dict[str, Any] = {
-            "assignee": "me",
-            "limit": 50,
-            "orderBy": "updatedAt",
-            "fields": list(FIELDS),
-        }
-        if cursor:
-            arguments["cursor"] = cursor
-        payload = session.call("list_issues", arguments)
-        raw_issues = payload.get("issues")
-        if not isinstance(raw_issues, list):
-            raise Malformed("list_issues returned no issue list")
-        issues.extend(_issue_of(raw) for raw in raw_issues)
-        if not payload.get("hasNextPage"):
-            break
-        cursor = payload.get("cursor")
-        if not isinstance(cursor, str) or not cursor:
-            break
+    projects = _fetch_projects(session)
+
+    arguments: dict[str, Any] = {
+        "assignee": "me",
+        "limit": 50,
+        "orderBy": "updatedAt",
+        "fields": list(FIELDS),
+    }
+    raw_issues = _pages(session, "list_issues", arguments, "issues", MAX_PAGES)
+    issues = [_issue_of(raw) for raw in raw_issues]
 
     active = [issue for issue in issues if issue.status_type in ACTIVE_STATUS_TYPES]
     newest_first = sorted(active, key=lambda issue: issue.updated_at, reverse=True)
-    items: list[Item] = [viewer]
+    items: list[Item] = [viewer, *projects]
     items.extend(newest_first)
     return tuple(items)
 
@@ -204,6 +309,88 @@ def _issue_of(raw: Any) -> Issue:
     )
 
 
+def _person_of(raw: dict[str, Any], key: str) -> str:
+    person = raw.get(key)
+    if not isinstance(person, dict):
+        return ""
+    return _clean_optional(person, "name")
+
+
+def _project_status_of(raw: dict[str, Any]) -> tuple[str, str]:
+    status = raw.get("status")
+    if not isinstance(status, dict):
+        raise Malformed(f"'status' was {type(status).__name__}, expected an object")
+    name = required_string(status, "name")
+    status_type = optional_string(status, "type")
+    return name, status_type
+
+
+def _team_keys_of(raw: dict[str, Any]) -> tuple[str, ...]:
+    teams = raw.get("teams")
+    if not isinstance(teams, list):
+        return ()
+    keys: list[str] = []
+    for team in teams:
+        if not isinstance(team, dict):
+            raise Malformed(f"a team was {type(team).__name__}, expected an object")
+        keys.append(optional_string(team, "key"))
+    return tuple(keys)
+
+
+def _progress_of(raw: dict[str, Any]) -> int:
+    text = optional_string(raw, "progress")
+    digits = text.removesuffix("%").strip()
+    if not digits.isdigit():
+        return 0
+    return int(digits)
+
+
+def _project_milestone_of(raw: Any) -> Milestone:
+    if not isinstance(raw, dict):
+        raise Malformed(f"a milestone was {type(raw).__name__}, expected an object")
+    name = required_string(raw, "name")
+    return Milestone(
+        name=sanitize_line(name),
+        target_date=optional_string(raw, "targetDate"),
+        progress=_progress_of(raw),
+    )
+
+
+def _project_milestones_of(raw: dict[str, Any]) -> tuple[Milestone, ...]:
+    raw_milestones = raw.get("milestones")
+    if raw_milestones is None:
+        return ()
+    if not isinstance(raw_milestones, list):
+        raise Malformed(f"'milestones' was {type(raw_milestones).__name__}, expected a list")
+    milestones: list[Milestone] = []
+    for raw_milestone in raw_milestones:
+        milestones.append(_project_milestone_of(raw_milestone))
+    return tuple(milestones)
+
+
+def _project_of(raw: Any) -> Project:
+    if not isinstance(raw, dict):
+        raise Malformed(f"a project was {type(raw).__name__}, expected an object")
+    status, status_type = _project_status_of(raw)
+    name = required_string(raw, "name")
+    return Project(
+        id=required_string(raw, "id"),
+        updated_at=timestamp(raw, "updatedAt"),
+        url=required_string(raw, "url"),
+        name=sanitize_line(name),
+        summary=_clean_optional(raw, "summary"),
+        status=status,
+        status_type=status_type,
+        priority=_priority_of(raw),
+        lead=_person_of(raw, "lead"),
+        teams=_team_keys_of(raw),
+        start_date=optional_string(raw, "startDate"),
+        target_date=optional_string(raw, "targetDate"),
+        target_resolution=optional_string(raw, "targetDateResolution"),
+        milestones=_project_milestones_of(raw),
+    )
+
+
 def _viewer_of(raw: Any) -> Viewer:
     if not isinstance(raw, dict):
         raise Malformed("get_user returned no user")
@@ -222,9 +409,68 @@ def _viewer_of(raw: Any) -> Viewer:
     )
 
 
-def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> IssueDetail:
+def _description_of(payload: dict[str, Any]) -> str:
+    raw_description = optional_string(payload, "description")
+    sanitized = sanitize_block(raw_description, limit=None)
+    unwrapped = _unwrap_linear_tags(sanitized)
+    return truncate(unwrapped, DESCRIPTION_LIMIT)
+
+
+def _project_issue_of(raw: Any) -> ProjectIssue:
+    if not isinstance(raw, dict):
+        raise Malformed(f"an issue was {type(raw).__name__}, expected an object")
+    title = required_string(raw, "title")
+    return ProjectIssue(
+        id=required_string(raw, "id"),
+        title=sanitize_line(title),
+        status=required_string(raw, "status"),
+        status_type=required_string(raw, "statusType"),
+        priority=_priority_of(raw),
+        url=required_string(raw, "url"),
+        assignee=_person_of(raw, "assignee"),
+        parent_id=optional_string(raw, "parentId"),
+    )
+
+
+def _initiatives_of(raw: dict[str, Any]) -> tuple[str, ...]:
+    initiatives = raw.get("initiatives")
+    if not isinstance(initiatives, list):
+        return ()
+    names: list[str] = []
+    for initiative in initiatives:
+        if not isinstance(initiative, dict):
+            raise Malformed(f"an initiative was {type(initiative).__name__}, expected an object")
+        names.append(_clean_optional(initiative, "name"))
+    return tuple(names)
+
+
+def _fetch_project_issues(session: McpSession, project: Project) -> tuple[ProjectIssue, ...]:
+    arguments: dict[str, Any] = {
+        "project": project.id,
+        "limit": PROJECT_ISSUE_LIMIT,
+        "orderBy": "updatedAt",
+        "fields": list(PROJECT_ISSUE_FIELDS),
+    }
+    raw_issues = _pages(session, "list_issues", arguments, "issues", PROJECT_ISSUE_PAGES)
+    issues = [_project_issue_of(raw) for raw in raw_issues]
+    return tuple(issues)
+
+
+def _fetch_project_detail(session: McpSession, project: Project) -> ProjectDetail:
+    payload = session.call("get_project", {"query": project.id, "includeMilestones": True})
+    if not isinstance(payload, dict):
+        raise Malformed("get_project returned no project")
+    description = _description_of(payload)
+    return ProjectDetail(
+        description=description,
+        initiatives=_initiatives_of(payload),
+        milestones=_project_milestones_of(payload),
+        issues=_fetch_project_issues(session, project),
+    )
+
+
+def _fetch_issue_detail(session: McpSession, item: Item) -> IssueDetail:
     """The issue's expanded view: properties, parent, sub-issues, relations, links, and activity."""
-    session = McpSession(ENDPOINT, credentials.access_token, http)
     issue_payload = session.call("get_issue", {"id": item.id, "includeRelations": True})
     comments_payload = session.call(
         "list_comments", {"issueId": item.id, "limit": COMMENTS_FETCH_LIMIT}
@@ -243,8 +489,7 @@ def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> Is
 
     # Sanitize uncapped, then unwrap, then cap: unwrapping after capping could cut mid-tag and
     # leave one of our own <issue>/<user>/... fragments dangling in what the panel renders.
-    sanitized = sanitize_block(optional_string(issue_payload, "description"), limit=None)
-    description = truncate(_unwrap_linear_tags(sanitized), DESCRIPTION_LIMIT)
+    description = _description_of(issue_payload)
     relations = issue_payload.get("relations")
     if relations is None:
         relations = {}
@@ -272,6 +517,16 @@ def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> Is
         transitions=_transitions_of(issue_payload),
         comments=_comments_of(comments_payload),
     )
+
+
+def fetch_detail(
+    credentials: Credentials, http: httpx.Client, item: Item
+) -> IssueDetail | ProjectDetail:
+    """The item's expanded view: an issue's page, or a project's page with all its issues."""
+    session = McpSession(ENDPOINT, credentials.access_token, http)
+    if isinstance(item, Project):
+        return _fetch_project_detail(session, item)
+    return _fetch_issue_detail(session, item)
 
 
 def _clean_optional(raw: dict[str, Any], key: str) -> str:

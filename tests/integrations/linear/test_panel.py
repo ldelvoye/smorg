@@ -9,7 +9,7 @@ from smorg.integrations.linear.views import LinearView
 from smorg.integrations.linear.views.issue import LinearIssueView
 from smorg.integrations.linear.views.issues import LinearIssues
 
-from .helpers import PanelHarness, detail, issue, panel_with, viewer
+from .helpers import PanelHarness, detail, issue, panel_with, project, viewer
 
 
 @pytest.mark.asyncio
@@ -28,10 +28,18 @@ async def test_the_menu_is_the_landing_and_enter_and_escape_walk_between_menu_an
         assert panel.active_view is LinearView.MENU
 
 
-def test_mark_all_seen_skips_the_viewer(monkeypatch):
+def test_mark_all_seen_skips_the_viewer_and_the_projects(monkeypatch):
     monkeypatch.setattr("smorg.core.state.SeenState.save", lambda self: None)
-    panel = panel_with(viewer(), issue("ENG-1"))
+    panel = panel_with(viewer(), issue("ENG-1"), project("Redis"))
     panel.mark_all_seen()
+    assert panel.seen.is_changed("linear", issue("ENG-1")) is False
+    assert panel.seen.is_changed("linear", viewer()) is True
+    assert panel.seen.is_changed("linear", project("Redis")) is True
+
+    panel.mark_seen(project("Redis"))
+    monkeypatch.setattr(panel, "selected_item", lambda: project("Redis"))
+    panel.mark_unseen()
+    assert panel.seen.is_changed("linear", project("Redis")) is True
     assert panel.seen.is_changed("linear", issue("ENG-1")) is False
     assert panel.seen.is_changed("linear", viewer()) is True
 
@@ -132,7 +140,7 @@ async def test_opening_targets_grows_the_trail_and_escape_walks_it_back(monkeypa
         await pilot.pause()
         panel.open_target(_target("ENG-1"))
         await pilot.pause()
-        assert panel.trail_ids() == ("ENG-1", "ENG-2", "ENG-1")
+        assert panel.trail_labels() == ("ENG-1", "ENG-2", "ENG-1")
         assert panel.viewed == issue("ENG-1")
         header = "\n".join(panel.query_one(LinearIssueView).content_lines())
         assert "‹ esc — ENG-2" in header
@@ -140,12 +148,12 @@ async def test_opening_targets_grows_the_trail_and_escape_walks_it_back(monkeypa
 
         await pilot.press("escape")
         await pilot.pause()
-        assert panel.trail_ids() == ("ENG-1", "ENG-2")
+        assert panel.trail_labels() == ("ENG-1", "ENG-2")
         assert panel.viewed is not None and panel.viewed.id == "ENG-2"
 
         panel.go_back_to(-1)
         await pilot.pause()
-        assert panel.trail_ids() == ()
+        assert panel.trail_labels() == ()
         assert panel.active_view is LinearView.ISSUES
         assert panel.query_one(LinearIssues).has_focus
 
@@ -211,3 +219,46 @@ def test_home_url_is_the_org_home_or_linear_itself():
     assert alone.home_url() == "https://linear.app"
     with_issue = panel_with(viewer(), issue("ENG-1"))
     assert with_issue.home_url() == "https://linear.app/x/"
+
+
+@pytest.mark.asyncio
+async def test_enter_on_the_projects_list_opens_the_page_and_escape_walks_back_to_the_list():
+    panel = panel_with(viewer(), project("Redis"))
+    async with PanelHarness(panel).run_test(size=(100, 32)) as pilot:
+        panel.show_view(LinearView.PROJECTS)
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert panel.active_view is LinearView.PROJECT
+        selected = panel.selected_item()
+        assert selected is not None and selected.id == "project-redis"
+        await pilot.press("escape")
+        await pilot.pause()
+        assert panel.active_view is LinearView.PROJECTS
+
+
+@pytest.mark.asyncio
+async def test_the_menu_opens_the_projects_list_and_escape_returns_to_the_menu():
+    panel = panel_with(viewer(), project("Redis"), issue("ENG-1"))
+    async with PanelHarness(panel).run_test(size=(100, 32)) as pilot:
+        await pilot.pause()
+        await pilot.press("down")
+        await pilot.press("enter")
+        await pilot.pause()
+        assert panel.active_view is LinearView.PROJECTS
+        await pilot.press("escape")
+        await pilot.pause()
+        assert panel.active_view is LinearView.MENU
+
+
+def test_trail_labels_name_projects_and_identify_issues():
+    panel = panel_with(viewer(), project("Redis"), issue("ENG-1"))
+    panel.trail.push(project("Redis"))
+    panel.trail.push(issue("ENG-1"))
+    assert panel.trail_labels() == ("Redis", "ENG-1")
+    assert panel.viewed is not None and panel.viewed.id == "ENG-1"
+    assert panel.viewed_project is None
+    panel.trail.pop()
+    assert panel.viewed is None
+    assert panel.viewed_project is not None and panel.viewed_project.name == "Redis"
+    assert [item.name for item in panel.projects()] == ["Redis"]

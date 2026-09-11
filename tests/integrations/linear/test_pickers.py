@@ -43,7 +43,7 @@ async def test_enter_opens_the_picker_and_choosing_a_row_opens_that_issue(monkey
         await pilot.press("down", "enter")
         await pilot.pause()
         assert not isinstance(pilot.app.screen, OpenFromPicker)
-        assert panel.trail_ids() == ("ENG-1", "ENG-2")
+        assert panel.trail_labels() == ("ENG-1", "ENG-2")
         assert panel.viewed is not None and panel.viewed.title == "a"
 
 
@@ -112,5 +112,5 @@ async def test_backspace_opens_the_trail_picker_preselected_on_the_previous_page
 
         await pilot.press("down", "enter")
         await pilot.pause()
-        assert panel.trail_ids() == ()
+        assert panel.trail_labels() == ()
         assert not isinstance(pilot.app.screen, TrailPicker)

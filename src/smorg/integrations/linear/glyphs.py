@@ -1,4 +1,4 @@
-"""Linear's status discs, colors, ranking and priority icon, shared by the Linear views."""
+"""Linear's status discs, colors, ranks, progress bar and priority icon, shared by the views."""
 
 from __future__ import annotations
 
@@ -15,6 +15,12 @@ DISC_BACKLOG = "◌"
 
 PRIORITY_WIDTH = 3
 
+BAR_CELLS = 10
+_BAR_DONE = "▰"
+_BAR_REST = "▱"
+
+_PRIORITY_RANKS = {"urgent": 0, "high": 1, "medium": 2, "low": 3}
+
 # Ordered by actionability: doing, shepherding, queued, stuck.
 _STATUS_RANKS = {"in progress": 0, "in review": 1, "todo": 3, "blocked": 5}
 
@@ -26,6 +32,25 @@ def status_rank(status: str, status_type: str) -> int:
     if status_type == "started":
         return 2
     return 4
+
+
+def priority_rank(priority: str) -> int:
+    known = _PRIORITY_RANKS.get(priority.casefold())
+    if known is not None:
+        return known
+    return 4
+
+
+def format_progress_bar(percent: int, accent: str) -> Text:
+    """`percent` of the bar in the accent, the rest dim, rounded to the nearest cell, half up."""
+    clamped = max(0, min(100, percent))
+    scaled = clamped * BAR_CELLS / 100
+    done = int(scaled + 0.5)
+    rest = BAR_CELLS - done
+    bar = Text()
+    bar.append(_BAR_DONE * done, style=accent)
+    bar.append(_BAR_REST * rest, style="dim")
+    return bar
 
 
 def status_disc(status: str, status_type: str) -> str:

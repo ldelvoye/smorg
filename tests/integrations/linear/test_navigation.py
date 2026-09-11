@@ -7,13 +7,16 @@ from smorg.integrations.linear.navigation import (
     UNKNOWN_UPDATED_AT,
     Target,
     Trail,
+    format_project_row,
     format_trail,
     issue_of_target,
     targets_of,
 )
-from smorg.integrations.linear.source import ParentSummary, RelatedIssue, SubIssue
+from smorg.integrations.linear.source import Issue, ParentSummary, Project, RelatedIssue, SubIssue
+from smorg.integrations.linear.views import LinearView
+from smorg.shell.terminal_palette import StatusColors
 
-from .helpers import detail, issue
+from .helpers import detail, issue, project
 
 
 def _target(identifier: str) -> Target:
@@ -63,19 +66,34 @@ def test_the_trail_pushes_duplicates_pops_one_and_pops_to_an_index():
     trail.push(issue("ENG-2"))
     trail.push(issue("ENG-1"))
     assert trail.depth() == 3
-    assert [visit.issue.id for visit in trail.visits] == ["ENG-1", "ENG-2", "ENG-1"]
+    assert [visit.item.id for visit in trail.visits] == ["ENG-1", "ENG-2", "ENG-1"]
 
     trail.remember(scroll_y=7, picker_cursor=2)
     assert (trail.visits[-1].scroll_y, trail.visits[-1].picker_cursor) == (7, 2)
 
     popped = trail.pop()
-    assert popped is not None and popped.issue.id == "ENG-1"
+    assert popped is not None and popped.item.id == "ENG-1"
     assert trail.current() == issue("ENG-2")
 
     trail.pop_to(0)
-    assert [visit.issue.id for visit in trail.visits] == ["ENG-1"]
+    assert [visit.item.id for visit in trail.visits] == ["ENG-1"]
     trail.pop_to(-1)
     assert trail.visits == [] and trail.current() is None and trail.pop() is None
+
+
+def test_the_trail_holds_projects_and_issues_alike_and_labels_each():
+    trail = Trail()
+    trail.push(project("Redis"))
+    trail.push(issue("ENG-1"))
+    assert isinstance(trail.current(), Issue)
+    trail.pop()
+    assert isinstance(trail.current(), Project)
+    assert trail.root is LinearView.ISSUES
+
+
+def test_a_project_row_is_its_disc_and_name():
+    row = format_project_row(project("Redis"), StatusColors("r", "y", "g"), "#828fff", False)
+    assert row.plain == "◐ Redis"
 
 
 def test_a_target_in_the_list_resolves_to_that_item_and_a_foreign_one_to_a_synthetic_issue():

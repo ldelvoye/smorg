@@ -9,3 +9,6 @@ class LinearView(StrEnum):
     MENU = "menu"
     ISSUES = "issues"
     ISSUE = "issue"
+    PROJECTS = "projects"
+    PROJECT = "project"
+    PROJECT_ISSUES = "project_issues"

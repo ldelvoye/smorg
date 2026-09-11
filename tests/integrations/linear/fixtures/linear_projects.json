@@ -1,0 +1,53 @@
+{
+  "projects": [
+    {
+      "id": "255a8298-30dd-4532-a4ab-d4cef22152ee",
+      "name": "Improve Redis Scalability",
+      "summary": "",
+      "url": "https://linear.app/x/project/improve-redis-scalability-0344382483a2",
+      "updatedAt": "2026-09-10T19:55:43.631Z",
+      "startDate": "2026-08-04",
+      "targetDate": "2027-01-31",
+      "targetDateResolution": "halfYear",
+      "priority": {"value": 2, "name": "High"},
+      "lead": {"id": "ff8ae644-b803-4b0e-bd0c-75ff43b770f7", "name": "Mark Story"},
+      "status": {"id": "d34082de-b030-4b0f-aa46-5daef4f94e76", "name": "In Progress", "type": "started"},
+      "teams": [{"id": "73e5c003", "name": "Infrastructure Engineering", "key": "INFRENG"}, {"id": "f6928780", "name": "Production Engineering", "key": "PRODENG"}],
+      "milestones": [
+        {"id": "a116617a", "name": "Reduce \"forever\" data in Redis", "description": null, "targetDate": "2026-10-31", "progress": "52%"},
+        {"id": "a3e7b63f", "name": "Move workloads off of redis-blaster", "description": "Migrate then tear down.", "targetDate": null, "progress": "n/a"}
+      ]
+    },
+    {
+      "id": "c0bfe52a-0642-448e-b7e0-3b66cc59a997",
+      "name": "Sudo production tooling",
+      "summary": "",
+      "url": "https://linear.app/x/project/sudo-production-tooling-b0a6726d7bcd",
+      "updatedAt": "2026-09-10T17:47:32.542Z",
+      "startDate": "2026-07-15",
+      "targetDate": null,
+      "targetDateResolution": null,
+      "priority": {"value": 4, "name": "Low"},
+      "lead": {},
+      "status": {"id": "e1", "name": "Planned", "type": "planned"},
+      "teams": [{"id": "73e5c003", "name": "Infrastructure Engineering", "key": "INFRENG"}],
+      "milestones": []
+    },
+    {
+      "id": "9d3c6b71-3f2a-4a2b-9c3f-1c2a3b4c5d6e",
+      "name": "Retired tooling",
+      "summary": "",
+      "url": "https://linear.app/x/project/retired-tooling-9d3c6b713f2a",
+      "updatedAt": "2026-07-01T09:00:00.000Z",
+      "startDate": "2026-01-01",
+      "targetDate": null,
+      "targetDateResolution": null,
+      "priority": {"value": 4, "name": "Low"},
+      "lead": {"id": "9e2a4c11-7b1d-4a6a-9c2e-2b3c4d5e6f7a", "name": "Ana Diaz"},
+      "status": {"id": "e2", "name": "Completed", "type": "completed"},
+      "teams": [{"id": "73e5c003", "name": "Infrastructure Engineering", "key": "INFRENG"}],
+      "milestones": []
+    }
+  ],
+  "hasNextPage": false
+}
