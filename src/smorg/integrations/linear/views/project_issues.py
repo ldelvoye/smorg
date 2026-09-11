@@ -256,8 +256,7 @@ class LinearProjectIssues(GatedBodyView["LinearPanel"]):
         Binding("escape", "back_to_project", "back to project", show=False),
     ]
     DEFAULT_CSS = """
-    LinearProjectIssues { align-horizontal: center; }
-    LinearProjectIssues > #body { width: 100%; max-width: 120; }
+    LinearProjectIssues { width: 100%; max-width: 120; }
     """
 
     def detail(self) -> ProjectDetail | None:

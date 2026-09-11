@@ -35,6 +35,9 @@ _VIEW_CLASSES: dict[GitHubView, type[HostedView]] = {
 
 
 class GitHubPanel(ViewHostPanel[GitHubView]):
+    DEFAULT_CSS = """
+    GitHubPanel { align-horizontal: center; }
+    """
     refresh_indicator_class = GitHubRefreshIndicator
 
     def __init__(self) -> None:
