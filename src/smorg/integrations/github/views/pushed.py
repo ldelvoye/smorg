@@ -49,10 +49,9 @@ class GitHubPushedBranches(GatedBodyView["GitHubPanel"]):
         Binding("escape", "back_to_menu", "back to menu", show=False),
     ]
     DEFAULT_CSS = """
-    GitHubPushedBranches { align-horizontal: center; }
-    /* The cap keeps repository · headline · age near the names on wide terminals; the
-     * centering places the capped body like the menu's composition. */
-    GitHubPushedBranches > #body { width: 100%; max-width: 120; }
+    /* The cap keeps repository · headline · age near the names on wide terminals and
+     * puts the scrollbar at the box's edge; the panel centres the box. */
+    GitHubPushedBranches { width: 100%; max-width: 120; }
     """
 
     def _branches(self) -> tuple[PushedBranch, ...]:

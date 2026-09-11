@@ -102,10 +102,9 @@ class GitHubInbox(GatedBodyView["GitHubPanel"]):
         Binding("escape", "back_to_menu", "back to menu", show=False),
     ]
     DEFAULT_CSS = """
-    GitHubInbox { align-horizontal: center; }
-    /* The cap keeps author · age near the titles on wide terminals; the centering
-     * places the capped body like the menu's composition. */
-    GitHubInbox > #body { width: 100%; max-width: 120; }
+    /* The cap keeps author · age near the titles on wide terminals and puts the
+     * scrollbar at the box's edge; the panel centres the box. */
+    GitHubInbox { width: 100%; max-width: 120; }
     """
 
     def _bands(self) -> tuple[Band, ...]:

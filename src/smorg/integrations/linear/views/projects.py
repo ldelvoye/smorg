@@ -113,8 +113,7 @@ class LinearProjects(GatedBodyView["LinearPanel"]):
         Binding("escape", "back_to_menu", "back to menu", show=False),
     ]
     DEFAULT_CSS = """
-    LinearProjects { align-horizontal: center; }
-    LinearProjects > #body { width: 100%; max-width: 120; }
+    LinearProjects { width: 100%; max-width: 120; }
     """
 
     def selected_item(self) -> Project | None:

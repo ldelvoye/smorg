@@ -334,6 +334,19 @@ async def test_enter_opens_the_diff_view_and_j_k_clamp_the_selection(tmp_path, m
         assert panel.active_view is GitHubView.PULL_REQUEST
 
 
+async def test_a_wide_terminal_caps_and_centres_the_scroll_box_so_its_scrollbar_hugs_the_list():
+    panel = panel_with(profile_item(), pull(42))
+    async with PanelHarness(panel).run_test(size=(160, 40)) as pilot:
+        panel.show_view(GitHubView.INBOX)
+        await pilot.pause()
+
+        inbox = panel.query_one(GitHubInbox)
+        margin = (panel.size.width - inbox.size.width) // 2
+
+        assert inbox.size.width == 120
+        assert inbox.region.x == panel.region.x + margin
+
+
 # --- Theme-aware status colors, without a mounted app ---
 
 

@@ -251,8 +251,8 @@ class GitHubPullRequestView(GutteredScroll, HostedView):
     ]
 
     DEFAULT_CSS = """
-    GitHubPullRequestView { align-horizontal: center; }
-    GitHubPullRequestView > #pull-request-body { width: 100%; max-width: 120; height: auto; }
+    GitHubPullRequestView { width: 100%; max-width: 120; }
+    GitHubPullRequestView > #pull-request-body { width: 100%; height: auto; }
     """
 
     def __init__(self, panel: GitHubPanel) -> None:
