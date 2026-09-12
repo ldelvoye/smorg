@@ -13,8 +13,8 @@ from smorg.integrations.linear.dates import target_label
 from smorg.integrations.linear.glyphs import (
     format_progress_bar,
     priority_rank,
+    project_glyph,
     status_color,
-    status_disc,
     status_rank,
 )
 from smorg.integrations.linear.source import Milestone, Project
@@ -70,9 +70,9 @@ def _format_title_row(project: Project, selected: bool, colors: StatusColors, ac
     row = Text()
     row.append_text(format_marks(selected, False, accent))
     row.append(" ")
-    disc = status_disc(project.status, project.status_type)
+    glyph = project_glyph(project.status_type)
     color = status_color(project.status, project.status_type, colors, accent)
-    row.append(disc, style=color)
+    row.append(glyph, style=color)
     row.append(" ")
     if selected:
         name_style = "bold"
@@ -164,13 +164,13 @@ class LinearProjects(GatedBodyView["LinearPanel"]):
         for index, (status, status_type, members) in enumerate(_project_groups(projects)):
             if index > 0:
                 parts.append(Text())
-            disc = status_disc(status, status_type)
+            glyph = project_glyph(status_type)
             color = status_color(status, status_type, colors, accent)
             if color == "dim":
                 tint = ""
             else:
                 tint = color
-            title = format_card_title(f"{disc} {status} ({len(members)})", tint)
+            title = format_card_title(f"{glyph} {status} ({len(members)})", tint)
             body: list[RenderableType] = []
             for member in members:
                 if body:

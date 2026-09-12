@@ -93,7 +93,7 @@ def test_the_trail_holds_projects_and_issues_alike_and_labels_each():
 
 def test_a_project_row_is_its_disc_and_name():
     row = format_project_row(project("Redis"), StatusColors("r", "y", "g"), "#828fff", False)
-    assert row.plain == "◐ Redis"
+    assert row.plain == "◈ Redis"
 
 
 def test_a_target_in_the_list_resolves_to_that_item_and_a_foreign_one_to_a_synthetic_issue():

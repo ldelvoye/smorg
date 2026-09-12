@@ -556,9 +556,6 @@ class LinearIssueView(Horizontal, HostedView):
     def _trail_picked(self, value: object | None) -> None:
         if not isinstance(value, int):
             return
-        last = len(self.panel.trail.visits) - 1
-        if value == last:
-            return
         self.panel.go_back_to(value)
 
     def action_back(self) -> None:

@@ -65,23 +65,29 @@ class TrailPicker(Picker):
     ]
 
 
+def _visit_label(visit: Visit) -> str:
+    item = visit.item
+    if isinstance(item, Project):
+        return item.name
+    return item.id
+
+
 def trail_picker(
     visits: list[Visit], root_label: str, colors: StatusColors, accent: str
 ) -> TrailPicker:
-    """The current page first (dim), then every earlier visit, and the root last."""
+    """Titled by the current page; every earlier visit newest first, and the root last."""
     rows: list[Row] = []
     last = len(visits) - 1
-    for index in range(last, -1, -1):
-        current = index == last
+    for index in range(last - 1, -1, -1):
         item = visits[index].item
         if isinstance(item, Issue):
             target = target_of_issue(item)
-            row = format_target_row(target, colors, accent, current)
+            row = format_target_row(target, colors, accent, False)
         elif isinstance(item, Project):
-            row = format_project_row(item, colors, accent, current)
+            row = format_project_row(item, colors, accent, False)
         else:
             row = Text(item.id)
         rows.append((row, index))
     rows.append((Text(root_label), -1))
-    cursor = min(1, len(rows) - 1)
-    return TrailPicker("back to", [("", rows)], _TRAIL_HINT, cursor)
+    title = f"back from {_visit_label(visits[last])}"
+    return TrailPicker(title, [("", rows)], _TRAIL_HINT, 0)
