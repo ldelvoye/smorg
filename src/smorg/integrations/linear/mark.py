@@ -41,6 +41,9 @@ _BAND_FRACTION = 0.125
 # Above 1 the light leaves the tail fast and lingers on the head, which reads as a decay.
 _DECAY_EXPONENT = 1.5
 
+_SHINE_WIDTH = 1 / 14
+_SHINE_PASS = 1.4 / 3.0
+
 
 @dataclass(frozen=True)
 class Mark:
@@ -278,6 +281,28 @@ def paint_sweep(mark: Mark, glow: Glow, phase: float) -> Dots:
     return painted
 
 
+def shine_centre(phase: float) -> float | None:
+    """Where the shine's line sits on the head-to-tail axis, or None while the mark rests."""
+    if phase >= _SHINE_PASS:
+        return None
+    return 1.0 - phase / _SHINE_PASS
+
+
+def paint_shine(mark: Mark, glow: Glow, phase: float) -> Dots:
+    centre = shine_centre(phase)
+    if centre is None:
+        return paint_resting(mark, glow)
+    painted: dict[Dot, str] = {}
+    for index, dot in enumerate(mark.dots):
+        position = mark.positions[index]
+        gap = abs(position - centre)
+        if gap <= _SHINE_WIDTH / 2:
+            painted[dot] = glow.lit
+        else:
+            painted[dot] = glow.rest
+    return painted
+
+
 def _lit_share(phase: float) -> float:
     """How much of the mark, counted from the head, is still bold: all on the flash frame, none at
     rest."""
@@ -300,23 +325,3 @@ def paint_flash(mark: Mark, glow: Glow, phase: float) -> Dots:
     total = len(mark.dots)
     lit = round(total * share)
     return _paint_lit_prefix(mark.dots, lit, glow)
-
-
-def _swell(phase: float) -> float:
-    """The breath: 0 at the start and the end of the cycle, 1 at its middle, eased at both ends."""
-    turn = 2 * math.pi * phase
-    wave = math.cos(turn)
-    return (1 - wave) / 2
-
-
-def paint_breathe(mark: Mark, glow: Glow, phase: float) -> Dots:
-    swell = _swell(phase)
-    head = mark.strokes[0]
-    head_dots = len(head)
-    lit = round(head_dots * swell)
-    painted = _paint_lit_prefix(head, lit, glow)
-    trailing = mark.strokes[1:]
-    for stroke in trailing:
-        for dot in stroke:
-            painted[dot] = glow.rest
-    return painted

@@ -28,7 +28,7 @@ class Glow:
 # The lit shade is a real colour step, not bold alone: bold braille reads the same on a light
 # terminal.
 _GLOW_DARK = Glow(rest=_INDIGO_DARK, lit="bold #b8bfff", dim=f"dim {_INDIGO_DARK}")
-_GLOW_LIGHT = Glow(rest=_INDIGO_LIGHT, lit="bold #2f3ab8", dim=f"dim {_INDIGO_LIGHT}")
+_GLOW_LIGHT = Glow(rest=_INDIGO_LIGHT, lit="bold #c4c9ff", dim=f"dim {_INDIGO_LIGHT}")
 
 
 def glow_for_background(background: tuple[int, int, int] | None) -> Glow:
