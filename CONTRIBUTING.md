@@ -61,7 +61,7 @@ An integration that outgrows one of these files can turn it into a package of th
 - `self.mark_seen(item)`: when an interaction should count as "seen".
 - `fetch_detail` (`SupportsDetail` protocol that's feature-detected by the shell): the details pane fetched and cached by the shell. Your panel never touches the network.
 - `fetch_phases` + `fetch_with_progress` (`SupportsProgress` protocol that's feature-detected by the shell): declared phase labels reported as each begins, shown by the refresh indicator and your panel's `show_fetch_phase` hook.
-- `Action`s: validated against reserved and duplicated keybinds at construction, can be found in the `?` help listing. Action keys should still be bound in `panel.py` as `BINDINGS`.
+- `Action`s: validated against reserved and duplicated keybinds at construction, can be found in the `?` help listing. Action keys must still be bound in `panel.py` as `BINDINGS`, and the suite fails if one isn't: a key in the help listing that nothing binds is worse than no key at all.
 
 ## What development support you have
 
@@ -82,7 +82,7 @@ Current state of the test suite might not be ideal. In general though, avoid wri
 
 - Sources never format; panels never fetch.
 - Errors cross the seam only as `IntegrationError`
-- Reserved keys can't be bound.
+- A manifest action can't claim a key the shell reserves, and every key it does claim is bound by a panel or a view. Your own `BINDINGS` are yours: reusing `escape` for "back" inside a tab is expected.
 - No tokens in output.
 
 ## Releasing

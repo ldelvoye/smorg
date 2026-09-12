@@ -489,6 +489,31 @@ def test_a_null_description_and_assignee_become_empty_strings():
     assert detail.assignee == ""
 
 
+def test_a_listed_issue_is_sanitized_at_the_source():
+    def handler(request):
+        body = json.loads(request.content)
+        if body["method"] != "tools/call":
+            return httpx.Response(202)
+        if body["params"]["name"] == "get_user":
+            return sse(VIEWER)
+        if body["params"]["name"] == "list_projects":
+            return sse(PROJECTS)
+        hostile = json.loads(json.dumps(PAGES["page1"]))
+        first = hostile["issues"][0]
+        first["id"] = "ENG\x1b[31m-1"
+        first["title"] = "ok\x1b[2Jwiped\x1b]0;retitled\x07"
+        first["status"] = "In \x1b[31mReview"
+        first["team"] = "Infra\x1b[0m"
+        first["project"] = "Data\x07"
+        hostile["hasNextPage"] = False
+        return sse(hostile)
+
+    issue = issues_of(fetch_with(handler))[0]
+    shown = (issue.id, issue.title, issue.status, issue.team, issue.project)
+    assert not any("\x1b" in field or "\x07" in field for field in shown)
+    assert "wiped" in issue.title
+
+
 def test_detail_text_is_sanitized_at_the_source():
     issue = json.loads(json.dumps(DETAIL["issue"])) | {"description": "ok\n\x1b[31mbad\x1b[0m"}
     detail = issue_detail_with(detail_handler({"issue": issue}))
