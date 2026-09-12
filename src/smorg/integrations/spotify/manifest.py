@@ -1,5 +1,5 @@
-"""Spotify's declaration; connects with OAuth against an app the user creates themselves, and reads
-the REST API.
+"""Spotify's declaration; connects with OAuth against an app the user creates themselves, and talks
+to the REST API (read plus play/queue writes).
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ METHOD = OAuthMethod(
         "user-read-currently-playing",
         "user-read-playback-state",
         "user-read-recently-played",
+        "user-modify-playback-state",
     ),
 )
 
@@ -42,6 +43,26 @@ MANIFEST = Manifest(
         Action(id="open", label="Open in Spotify", key="o", action_class=ActionClass.LAUNCH),
         Action(id="play_now", label="Play now", key="p", action_class=ActionClass.REMOTE),
         Action(id="add_to_queue", label="Add to queue", key="a", action_class=ActionClass.REMOTE),
+        Action(id="toggle_shuffle", label="Shuffle", key="s", action_class=ActionClass.REMOTE),
+        Action(id="cycle_repeat", label="Repeat", key="e", action_class=ActionClass.REMOTE),
+        Action(
+            id="toggle_playback",
+            label="Play/pause",
+            key="space",
+            action_class=ActionClass.REMOTE,
+        ),
+        Action(
+            id="skip_previous",
+            label="Previous",
+            key="comma",
+            action_class=ActionClass.REMOTE,
+        ),
+        Action(
+            id="skip_next",
+            label="Next",
+            key="full_stop",
+            action_class=ActionClass.REMOTE,
+        ),
     ),
 )
 

@@ -1,8 +1,11 @@
 # Architecture (Written by John Clanker)
 
 smorg is a keyboard-driven terminal dashboard: each connected integration is a
-tab, nothing is enabled by default, and the app is read-plus-safe-actions — it
-shows what's on your plate and opens things, it never writes to a service.
+tab, nothing is enabled by default, and the app is read-plus-safe-actions by
+default — it shows what's on your plate and opens things. Writes to a service
+are exceptional: today only Spotify's play/queue actions (`ActionClass.REMOTE`)
+mutate remote state, via a shell-mediated credential worker that keeps panels
+off the network. A general restricted-write permission model is still ahead.
 
 This document explains the load-bearing decisions. How to *add* an integration
 is covered in [CONTRIBUTING.md](../CONTRIBUTING.md).
@@ -67,13 +70,11 @@ look like one:
 
 |                  | MCP transport | REST transport |
 | ---------------- | ------------- | -------------- |
-| **OAuth**        | Linear        | —              |
+| **OAuth**        | Linear        | Spotify        |
 | **Pasted token** | —             | GitHub         |
 
-The empty corners are circumstance, not design. OAuth + REST is where any
-classic OAuth provider with no token alternative lands (Spotify is the
-roadmap's first candidate); token + MCP would be an MCP server reached with a
-static bearer token.
+The empty corners are circumstance, not design. Token + MCP would be an MCP
+server reached with a static bearer token.
 
 ### The auth axis: OAuth where it is cheap, a pasted token where it is not
 

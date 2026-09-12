@@ -14,7 +14,7 @@ from smorg.integrations.spotify.source import (
     PlayerState,
     Track,
 )
-from smorg.shell.panel import PanelState
+from smorg.shell.panel import Panel, PanelState
 
 NOW = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
 
@@ -25,7 +25,13 @@ def track(
     album: str = "Hot Fuss",
 ) -> Track:
     slug = name.replace(" ", "-").replace("?", "")
-    return Track(track=name, artists=artists, album=album, url=f"https://open.spotify.com/t/{slug}")
+    return Track(
+        track=name,
+        artists=artists,
+        album=album,
+        url=f"https://open.spotify.com/t/{slug}",
+        uri=f"spotify:track:{slug}",
+    )
 
 
 def now_playing(
@@ -53,13 +59,22 @@ def state(
     playing: NowPlaying | None = None,
     queue: tuple[Track, ...] = (),
     played: LastPlayed | None = None,
+    shuffle: bool = False,
+    repeat: str = "off",
 ) -> PlayerState:
     if playing is not None:
         url = playing.track.url
     else:
         url = FALLBACK_URL
     return PlayerState(
-        id="player", updated_at=NOW, url=url, now_playing=playing, queue=queue, last_played=played
+        id="player",
+        updated_at=NOW,
+        url=url,
+        now_playing=playing,
+        queue=queue,
+        last_played=played,
+        shuffle=shuffle,
+        repeat=repeat,
     )
 
 
@@ -84,15 +99,48 @@ def test_a_playing_track_gets_the_play_icon():
 
 def test_a_paused_track_gets_the_pause_icon():
     text = panel_with(state(now_playing(is_playing=False))).ready_text()
+    banner = text.splitlines()[0]
 
-    assert "⏸" in text
-    assert "▶" not in text
+    assert banner.startswith("⏸")
+    assert "▶" not in banner
+
+
+def test_now_playing_leads_and_controls_close_the_body():
+    played = last_played()
+    text = panel_with(
+        state(now_playing(), queue=(track("Feel Good Inc."),), played=played)
+    ).ready_text()
+    lines = text.splitlines()
+    playing_at = next(index for index, line in enumerate(lines) if "Mr. Brightside" in line)
+    queue_at = next(index for index, line in enumerate(lines) if "up next" in line)
+    last_played_at = next(index for index, line in enumerate(lines) if "last played" in line)
+    controls_at = next(index for index, line in enumerate(lines) if "play/pause" in line)
+
+    assert playing_at < queue_at < last_played_at < controls_at
 
 
 def test_nothing_playing_says_so():
     text = panel_with(state()).ready_text()
 
     assert "nothing playing" in text
+
+
+def test_modes_line_shows_shuffle_and_repeat():
+    text = panel_with(state(now_playing(), shuffle=True, repeat="track")).ready_text()
+
+    assert "⇄ on" in text
+    assert "🔁 track" in text
+    assert "⏸" in text
+
+
+def test_default_modes_read_as_off():
+    text = panel_with(state(now_playing())).ready_text()
+
+    assert "⇄ off" in text
+    assert "🔁 off" in text
+    assert "space play/pause" in text
+    assert ", prev" in text
+    assert ". next" in text
 
 
 # --- The context label ---
@@ -191,9 +239,14 @@ class _SpotifyPanelHarness(App[None]):
     def __init__(self, panel: SpotifyPanel) -> None:
         super().__init__()
         self._panel = panel
+        self.credential_work: list[Panel.CredentialWorkRequested] = []
 
     def compose(self) -> ComposeResult:
         yield self._panel
+
+    def on_panel_credential_work_requested(self, message: Panel.CredentialWorkRequested) -> None:
+        self.credential_work.append(message)
+        message.stop()
 
 
 @pytest.mark.asyncio
@@ -240,7 +293,7 @@ async def test_pressing_p_opens_the_search_strip_with_the_play_now_placeholder()
 
         search = panel.query_one("#player-search", Input)
         assert search.display is True
-        assert search.placeholder == "play now — search (not implemented yet)"
+        assert search.placeholder == "play now — search"
         assert search.has_focus
 
 
@@ -255,16 +308,17 @@ async def test_pressing_a_opens_the_search_strip_with_the_add_to_queue_placehold
 
         search = panel.query_one("#player-search", Input)
         assert search.display is True
-        assert search.placeholder == "add to queue — search (not implemented yet)"
+        assert search.placeholder == "add to queue — search"
 
 
 @pytest.mark.asyncio
-async def test_submitting_the_search_notifies_not_implemented_and_closes_it(monkeypatch):
-    notified: list[str] = []
-    monkeypatch.setattr(
-        "smorg.integrations.spotify.panel.SpotifyPanel.notify",
-        lambda self, message, **kwargs: notified.append(message),
-    )
+async def test_submitting_an_empty_search_warns_and_keeps_the_strip_open(monkeypatch):
+    notified: list[tuple[str, str | None]] = []
+
+    def capture(self, message, **kwargs):
+        notified.append((message, kwargs.get("severity")))
+
+    monkeypatch.setattr("smorg.integrations.spotify.panel.SpotifyPanel.notify", capture)
     panel = panel_with(state(now_playing()))
     async with _SpotifyPanelHarness(panel).run_test() as pilot:
         panel.focus()
@@ -275,9 +329,27 @@ async def test_submitting_the_search_notifies_not_implemented_and_closes_it(monk
         await pilot.pause()
 
         search = panel.query_one("#player-search", Input)
-        assert search.display is False
+        assert search.display is True
 
-    assert notified == ["not implemented yet — coming with write permissions"]
+    assert notified == [("enter a search query", "warning")]
+
+
+@pytest.mark.asyncio
+async def test_submitting_a_search_posts_credential_work():
+    panel = panel_with(state(now_playing()))
+    async with _SpotifyPanelHarness(panel).run_test() as pilot:
+        panel.focus()
+        await pilot.pause()
+        await pilot.press("p")
+        await pilot.pause()
+        await pilot.press(*"brightside")
+        await pilot.press("enter")
+        await pilot.pause()
+
+        search = panel.query_one("#player-search", Input)
+        assert search.display is False
+        assert len(pilot.app.credential_work) == 1
+        assert pilot.app.credential_work[0].refresh_on_success is False
 
 
 @pytest.mark.asyncio
@@ -297,6 +369,55 @@ async def test_escape_closes_the_search_strip_and_returns_focus_to_the_panel():
         assert search.display is False
         assert search.value == ""
         assert panel.has_focus
+
+
+@pytest.mark.asyncio
+async def test_pressing_s_posts_shuffle_toggle():
+    panel = panel_with(state(now_playing(), shuffle=False))
+    async with _SpotifyPanelHarness(panel).run_test() as pilot:
+        panel.focus()
+        await pilot.pause()
+        await pilot.press("s")
+        await pilot.pause()
+
+        assert len(pilot.app.credential_work) == 1
+        assert pilot.app.credential_work[0].refresh_on_success is True
+
+
+@pytest.mark.asyncio
+async def test_pressing_e_posts_repeat_cycle():
+    panel = panel_with(state(now_playing(), repeat="off"))
+    async with _SpotifyPanelHarness(panel).run_test() as pilot:
+        panel.focus()
+        await pilot.pause()
+        await pilot.press("e")
+        await pilot.pause()
+
+        assert len(pilot.app.credential_work) == 1
+
+
+@pytest.mark.asyncio
+async def test_pressing_space_posts_playback_toggle():
+    panel = panel_with(state(now_playing(is_playing=True)))
+    async with _SpotifyPanelHarness(panel).run_test() as pilot:
+        panel.focus()
+        await pilot.pause()
+        await pilot.press("space")
+        await pilot.pause()
+
+        assert len(pilot.app.credential_work) == 1
+
+
+@pytest.mark.asyncio
+async def test_pressing_dot_posts_skip_next():
+    panel = panel_with(state(now_playing()))
+    async with _SpotifyPanelHarness(panel).run_test() as pilot:
+        panel.focus()
+        await pilot.pause()
+        await pilot.press(".")
+        await pilot.pause()
+
+        assert len(pilot.app.credential_work) == 1
 
 
 @pytest.mark.asyncio
