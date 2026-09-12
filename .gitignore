@@ -6,3 +6,6 @@ __pycache__/
 dist/
 .envrc
 .direnv/
+
+# Demo recordings are build output, attached to release notes rather than committed.
+demo/recordings/
