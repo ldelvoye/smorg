@@ -13,6 +13,11 @@ DISC_BLOCKED = "⊘"
 DISC_DONE = "●"
 DISC_BACKLOG = "◌"
 
+PROJECT_PLANNED = "◇"
+PROJECT_STARTED = "◈"
+PROJECT_COMPLETED = "◆"
+PROJECT_CANCELED = "⊘"
+
 PRIORITY_WIDTH = 3
 
 BAR_CELLS = 10
@@ -73,6 +78,17 @@ def status_disc(status: str, status_type: str) -> str:
     if status_type == "started":
         return DISC_IN_PROGRESS
     return DISC_TODO
+
+
+def project_glyph(status_type: str) -> str:
+    """A project's diamond, filled by how far along it is: "started" -> "◈"."""
+    if status_type == "completed":
+        return PROJECT_COMPLETED
+    if status_type == "canceled":
+        return PROJECT_CANCELED
+    if status_type == "started":
+        return PROJECT_STARTED
+    return PROJECT_PLANNED
 
 
 def status_color(status: str, status_type: str, colors: StatusColors, accent: str) -> str:

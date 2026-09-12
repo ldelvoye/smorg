@@ -9,7 +9,7 @@ from rich.cells import cell_len
 from rich.text import Text
 
 from smorg.core.contract import Item
-from smorg.integrations.linear.glyphs import DISC_BACKLOG, status_color, status_disc
+from smorg.integrations.linear.glyphs import DISC_BACKLOG, project_glyph, status_color, status_disc
 from smorg.integrations.linear.source import (
     Issue,
     IssueDetail,
@@ -239,8 +239,8 @@ def format_project_row(
     project: Project, colors: StatusColors, accent: str, dim_title: bool
 ) -> Text:
     row = Text()
-    disc = status_disc(project.status, project.status_type)
-    row.append(disc, style=status_color(project.status, project.status_type, colors, accent))
+    glyph = project_glyph(project.status_type)
+    row.append(glyph, style=status_color(project.status, project.status_type, colors, accent))
     row.append(" ")
     if dim_title:
         row.append(project.name, style="dim")

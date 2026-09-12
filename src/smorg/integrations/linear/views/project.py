@@ -15,7 +15,7 @@ from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Static
 
 from smorg.integrations.linear.dates import target_label
-from smorg.integrations.linear.glyphs import format_priority, status_color, status_disc
+from smorg.integrations.linear.glyphs import format_priority, project_glyph, status_color
 from smorg.integrations.linear.navigation import Visit, format_trail
 from smorg.integrations.linear.source import Project, ProjectDetail
 from smorg.integrations.linear.views import LinearView
@@ -69,8 +69,8 @@ def _format_header(project: Project) -> list[RenderableType]:
 
 def _format_properties(project: Project, colors: StatusColors, accent: str) -> list[Text]:
     stage_color = status_color(project.status, project.status_type, colors, accent)
-    disc = status_disc(project.status, project.status_type)
-    rows = [_format_row(disc, stage_color, project.status)]
+    glyph = project_glyph(project.status_type)
+    rows = [_format_row(glyph, stage_color, project.status)]
     if project.priority and project.priority != "No priority":
         priority_row = format_priority(project.priority, colors, stage_color)
         priority_row.append(" ")
@@ -343,9 +343,6 @@ class LinearProjectView(Horizontal, HostedView):
 
     def _trail_picked(self, value: object | None) -> None:
         if not isinstance(value, int):
-            return
-        last = len(self.panel.trail.visits) - 1
-        if value == last:
             return
         self.panel.go_back_to(value)
 

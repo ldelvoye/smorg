@@ -84,7 +84,9 @@ async def test_enter_toasts_instead_of_opening_when_there_is_nothing_or_no_detai
 
 
 @pytest.mark.asyncio
-async def test_backspace_opens_the_trail_picker_preselected_on_the_previous_page(monkeypatch):
+async def test_backspace_opens_the_trail_picker_titled_by_this_page_and_on_the_previous_one(
+    monkeypatch,
+):
     monkeypatch.setattr("smorg.core.state.SeenState.save", lambda self: None)
     panel = panel_with(issue("ENG-1"))
     async with PanelHarness(panel).run_test(size=(120, 40)) as pilot:
@@ -102,11 +104,12 @@ async def test_backspace_opens_the_trail_picker_preselected_on_the_previous_page
         await pilot.pause()
         picker = pilot.app.screen
         assert isinstance(picker, TrailPicker)
+        assert str(picker.query_one(".box").border_title) == "back from ENG-2"
         assert picker.selected_value() == 0
         lines = picker.content_lines()
-        assert "ENG-2" in lines[0]
-        trail_line = next(line for line in lines if line.startswith("▸ "))
-        assert "ENG-1" in trail_line
+        assert "ENG-2" not in "\n".join(lines)
+        assert lines[0].startswith("▸ ")
+        assert "ENG-1" in lines[0]
         rows_only = [line for line in lines if line.strip() and "esc close" not in line]
         assert rows_only[-1].endswith("issues")
 
