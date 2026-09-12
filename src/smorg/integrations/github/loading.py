@@ -5,8 +5,9 @@ from __future__ import annotations
 from rich.console import Group
 from rich.text import Text
 from textual.app import RenderResult
-from textual.timer import Timer
 from textual.widgets import Static
+
+from smorg.shell.animation import FrameClock
 
 _OCTOCAT = (
     "⠀⠀⠀⠀⠀⠀⠀⢀⣠⣤⣤⣶⣶⣶⣶⣤⣤⣄⡀⠀⠀⠀⠀⠀⠀⠀",
@@ -39,21 +40,20 @@ class GitHubLoading(Static):
         self.reason = reason
         self.bar_position = 0
         self.bar_direction = 1
-        self.is_animating = False
-        self._timer: Timer | None = None
+        self._clock = FrameClock(self, 1 / _TICK_SECONDS, self._tick)
 
-    def on_mount(self) -> None:
-        self._timer = self.set_interval(_TICK_SECONDS, self._advance, pause=True)
+    @property
+    def is_animating(self) -> bool:
+        return self._clock.running
 
     def on_show(self) -> None:
-        self.is_animating = True
-        if self._timer is not None:
-            self._timer.resume()
+        self._clock.start()
 
     def on_hide(self) -> None:
-        self.is_animating = False
-        if self._timer is not None:
-            self._timer.pause()
+        self._clock.stop()
+
+    def _tick(self, elapsed: float) -> None:
+        self._advance()
 
     def _advance(self) -> None:
         limit = _TRACK_WIDTH - _SEGMENT_WIDTH

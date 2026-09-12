@@ -253,7 +253,7 @@ async def test_the_sidebar_hides_below_the_breakpoint_and_returns_above_it(monke
     async with PanelHarness(panel).run_test(size=(120, 40)) as pilot:
         panel.open_issue(issue("ENG-1"))
         await pilot.pause()
-        sidebar = panel.query_one("#sidebar", VerticalScroll)
+        sidebar = panel.query_one(LinearIssueView).query_one(".sidebar", VerticalScroll)
         assert sidebar.display is True
 
         await pilot.resize_terminal(80, 40)
@@ -280,7 +280,7 @@ async def test_a_hostile_description_and_title_never_reach_rich_markup(monkeypat
         await pilot.pause()
         panel.show_detail(panel.detail_key(hostile), detail(description="[red]x[/red]"))
         await pilot.pause()
-        body = panel.query_one("#reading-body", Static)
+        body = panel.query_one(LinearIssueView).query_one("#reading-body", Static)
         rendered_lines = "".join(body.render_line(y).text for y in range(body.size.height))
     assert "[red]x[/red]" in rendered_lines
     assert "[blue]Weird[/blue]" in rendered_lines

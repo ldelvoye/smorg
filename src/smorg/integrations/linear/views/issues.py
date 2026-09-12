@@ -18,7 +18,8 @@ from smorg.integrations.linear.glyphs import (
 )
 from smorg.integrations.linear.source import Issue
 from smorg.integrations.linear.views import LinearView
-from smorg.shell.cards import CARD_CHROME, format_card, format_card_title, format_marks
+from smorg.integrations.linear.views.groups import format_group_title, status_runs
+from smorg.shell.cards import CARD_CHROME, format_card, format_marks
 from smorg.shell.cursor import clamp_cursor, step_cursor
 from smorg.shell.format import age, plain_lines, truncating
 from smorg.shell.marquee import MARQUEE_STYLE, marquee_overflow, marquee_window
@@ -26,22 +27,11 @@ from smorg.shell.terminal_palette import StatusColors
 from smorg.shell.view_host import GatedBodyView
 
 if TYPE_CHECKING:
+    from smorg.core.contract import Item
     from smorg.integrations.linear.panel import LinearPanel
 
 # The meta line starts under the id column: marks (3), priority (3), and their two separators.
 _META_INDENT = " " * 8
-
-
-def _format_group_title(
-    status: str, status_type: str, count: int, colors: StatusColors, accent: str
-) -> Text:
-    color = status_color(status, status_type, colors, accent)
-    disc = status_disc(status, status_type)
-    if color == "dim":
-        tint = ""
-    else:
-        tint = color
-    return format_card_title(f"{disc} {status} ({count})", tint)
 
 
 def _id_width(issues: tuple[Issue, ...]) -> int:
@@ -61,20 +51,6 @@ def _format_row_meta(issue: Issue) -> Text:
     return meta
 
 
-def _status_groups(issues: tuple[Issue, ...]) -> list[tuple[str, str, list[Issue]]]:
-    """Runs of consecutive same-status issues, in the order _grouped() already sorted them into."""
-    groups: list[tuple[str, str, list[Issue]]] = []
-    current_status = ""
-    current_members: list[Issue] = []
-    for issue in issues:
-        if issue.status != current_status:
-            current_status = issue.status
-            current_members = []
-            groups.append((issue.status, issue.status_type, current_members))
-        current_members.append(issue)
-    return groups
-
-
 class LinearIssues(GatedBodyView["LinearPanel"]):
     BINDINGS = [
         Binding("up", "cursor_up", "select issue", show=False),
@@ -86,6 +62,11 @@ class LinearIssues(GatedBodyView["LinearPanel"]):
     DEFAULT_CSS = """
     LinearIssues { width: 100%; max-width: 120; }
     """
+
+    def __init__(self, panel: LinearPanel) -> None:
+        super().__init__(panel)
+        self._grouped_source: tuple[Item, ...] | None = None
+        self._grouped_cache: tuple[Issue, ...] = ()
 
     def selected_item(self) -> Issue | None:
         issues = self._grouped()
@@ -104,6 +85,8 @@ class LinearIssues(GatedBodyView["LinearPanel"]):
         """Issues as one ordered sequence: status groups in fixed rank order, so a refresh never
         reshuffles them. The cursor moves through this same sequence.
         """
+        if self.panel.items is self._grouped_source:
+            return self._grouped_cache
         groups: dict[str, list[Issue]] = {}
         for issue in self.panel.issues():
             groups.setdefault(issue.status, []).append(issue)
@@ -117,7 +100,10 @@ class LinearIssues(GatedBodyView["LinearPanel"]):
         ordered_issues: list[Issue] = []
         for status in ordered_statuses:
             ordered_issues.extend(groups[status])
-        return tuple(ordered_issues)
+        grouped = tuple(ordered_issues)
+        self._grouped_source = self.panel.items
+        self._grouped_cache = grouped
+        return grouped
 
     def _move(self, offset: int) -> None:
         issues = self._grouped()
@@ -155,10 +141,11 @@ class LinearIssues(GatedBodyView["LinearPanel"]):
         accent = self.panel.accent()
         id_width = _id_width(issues)
         parts: list[RenderableType] = []
-        for index, (status, status_type, members) in enumerate(_status_groups(issues)):
+        for index, (status, status_type, members) in enumerate(status_runs(issues)):
             if index > 0:
                 parts.append(Text())
-            title = _format_group_title(status, status_type, len(members), colors, accent)
+            glyph = status_disc(status, status_type)
+            title = format_group_title(glyph, status, status_type, len(members), colors, accent)
             body: list[RenderableType] = []
             for issue in members:
                 if body:

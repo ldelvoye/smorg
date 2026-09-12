@@ -108,6 +108,35 @@ def test_reload_detail_drops_the_cache_and_asks_again():
     assert len(panel.posted) == 1
 
 
+def test_an_item_outside_seen_items_is_never_marked():
+    excluded = _item("excluded")
+    included = _item("included")
+
+    class _Narrowed(Panel):
+        def __init__(self) -> None:
+            super().__init__()
+            self.items = (excluded, included)
+            self.integration_id = "test"
+
+        def seen_items(self) -> tuple[Item, ...]:
+            return (included,)
+
+        def selected_item(self) -> Item | None:
+            return excluded
+
+    panel = _Narrowed()
+
+    panel.mark_seen(excluded)
+    panel.mark_unseen()
+
+    assert panel.seen.is_changed(panel.integration_id, excluded) is True
+
+    panel.mark_all_seen()
+
+    assert panel.seen.is_changed(panel.integration_id, included) is False
+    assert panel.seen.is_changed(panel.integration_id, excluded) is True
+
+
 def test_pruning_keeps_keys_a_panel_declares_in_use():
     class _Pinning(Panel):
         def __init__(self, pinned: Item) -> None:

@@ -10,12 +10,12 @@ from rich.console import Group, RenderableType
 from rich.text import Text
 from textual.binding import Binding
 
-from smorg.integrations.linear.glyphs import priority_rank, status_color, status_rank
+from smorg.integrations.linear.glyphs import priority_rank, status_color, status_disc, status_rank
 from smorg.integrations.linear.navigation import format_target_row, target_of_project_issue
 from smorg.integrations.linear.source import ProjectDetail, ProjectIssue
 from smorg.integrations.linear.views import LinearView
-from smorg.integrations.linear.views.issue import _BACK_HINT_PREFIX
-from smorg.integrations.linear.views.issues import _format_group_title
+from smorg.integrations.linear.views.groups import format_group_title
+from smorg.integrations.linear.views.page import BACK_HINT_PREFIX
 from smorg.shell.cards import CARD_CHROME, SELECTED_MARK, format_card, format_card_title
 from smorg.shell.cursor import clamp_cursor, step_cursor
 from smorg.shell.format import SELECTED_STYLE, plain_lines, truncating
@@ -42,11 +42,15 @@ class TreeRow:
     prefix: str
 
 
+TreeGroups = tuple[tuple[str, str, tuple[TreeRow, ...]], ...]
+
+
 @dataclass(frozen=True)
 class _StatusTallies:
     counts: dict[str, int]
     in_flight: tuple[tuple[str, str, int], ...]
     backlog: int
+    triage: int
     done: int
 
 
@@ -106,9 +110,7 @@ def _subtree(
         _subtree(child, depth + 1, lead + deeper, children, rows)
 
 
-def issue_tree(
-    issues: tuple[ProjectIssue, ...],
-) -> tuple[tuple[str, str, tuple[TreeRow, ...]], ...]:
+def issue_tree(issues: tuple[ProjectIssue, ...]) -> TreeGroups:
     """(status, status type, rows) per in-flight status in rank order: each root, then its whole
     subtree beneath it."""
     by_id = {issue.id: issue for issue in issues}
@@ -135,11 +137,12 @@ def issue_tree(
     return tuple(groups)
 
 
-def _status_tallies(issues: tuple[ProjectIssue, ...]) -> _StatusTallies:
+def status_tallies(issues: tuple[ProjectIssue, ...]) -> _StatusTallies:
     counts: dict[str, int] = {}
     in_flight_counts: dict[str, int] = {}
     in_flight_types: dict[str, str] = {}
     backlog = 0
+    triage = 0
     done = 0
     for issue in issues:
         seen_so_far = counts.get(issue.status, 0)
@@ -152,6 +155,8 @@ def _status_tallies(issues: tuple[ProjectIssue, ...]) -> _StatusTallies:
             done += 1
         elif issue.status_type == "backlog":
             backlog += 1
+        elif issue.status_type == "triage":
+            triage += 1
     ranked: list[tuple[int, str, str]] = []
     for status, status_type in in_flight_types.items():
         rank = status_rank(status, status_type)
@@ -160,10 +165,12 @@ def _status_tallies(issues: tuple[ProjectIssue, ...]) -> _StatusTallies:
     in_flight: list[tuple[str, str, int]] = []
     for _, _, status in ranked:
         in_flight.append((status, in_flight_types[status], in_flight_counts[status]))
-    return _StatusTallies(counts=counts, in_flight=tuple(in_flight), backlog=backlog, done=done)
+    return _StatusTallies(
+        counts=counts, in_flight=tuple(in_flight), backlog=backlog, triage=triage, done=done
+    )
 
 
-def _format_issue_counts(tallies: _StatusTallies, colors: StatusColors, accent: str) -> Text:
+def format_issue_counts(tallies: _StatusTallies, colors: StatusColors, accent: str) -> Text:
     entries: list[tuple[str, str]] = []
     for status, status_type, count in tallies.in_flight:
         color = status_color(status, status_type, colors, accent)
@@ -171,6 +178,8 @@ def _format_issue_counts(tallies: _StatusTallies, colors: StatusColors, accent: 
         entries.append((label, color))
     if tallies.backlog:
         entries.append((f"{tallies.backlog} backlog", "dim"))
+    if tallies.triage:
+        entries.append((f"{tallies.triage} triage", "dim"))
     if tallies.done:
         entries.append((f"{tallies.done} done", "dim"))
     line = Text()
@@ -234,6 +243,7 @@ def _format_tree_row(
 
 def _format_issues_card(
     detail: ProjectDetail,
+    tree: TreeGroups,
     viewer_name: str,
     colors: StatusColors,
     accent: str,
@@ -245,13 +255,14 @@ def _format_issues_card(
     if not detail.issues:
         return format_card(title, [Text("no issues", style="dim")])
     inner = budget - CARD_CHROME
-    tallies = _status_tallies(detail.issues)
-    body: list[RenderableType] = [_format_issue_counts(tallies, colors, accent)]
+    tallies = status_tallies(detail.issues)
+    body: list[RenderableType] = [format_issue_counts(tallies, colors, accent)]
     position = 0
-    for status, status_type, rows in issue_tree(detail.issues):
+    for status, status_type, rows in tree:
         body.append(Text())
         count = tallies.counts[status]
-        body.append(_format_group_title(status, status_type, count, colors, accent))
+        glyph = status_disc(status, status_type)
+        body.append(format_group_title(glyph, status, status_type, count, colors, accent))
         for row in rows:
             selected = position == cursor
             row_text = _format_tree_row(
@@ -274,6 +285,11 @@ class LinearProjectIssues(GatedBodyView["LinearPanel"]):
     LinearProjectIssues { width: 100%; max-width: 120; }
     """
 
+    def __init__(self, panel: LinearPanel) -> None:
+        super().__init__(panel)
+        self._tree_source: ProjectDetail | None = None
+        self._tree_cache: TreeGroups = ()
+
     def detail(self) -> ProjectDetail | None:
         project = self.panel.viewed_project
         if project is None:
@@ -283,12 +299,20 @@ class LinearProjectIssues(GatedBodyView["LinearPanel"]):
             return raw
         return None
 
-    def _tree_rows(self) -> tuple[TreeRow, ...]:
+    def _tree(self) -> TreeGroups:
         detail = self.detail()
         if detail is None:
             return ()
+        if detail is self._tree_source:
+            return self._tree_cache
+        tree = issue_tree(detail.issues)
+        self._tree_source = detail
+        self._tree_cache = tree
+        return tree
+
+    def _tree_rows(self) -> tuple[TreeRow, ...]:
         flattened: list[TreeRow] = []
-        for _, _, rows in issue_tree(detail.issues):
+        for _, _, rows in self._tree():
             flattened.extend(rows)
         return tuple(flattened)
 
@@ -340,7 +364,7 @@ class LinearProjectIssues(GatedBodyView["LinearPanel"]):
         project = self.panel.viewed_project
         if project is None:
             return Text()
-        hint = Text(f"{_BACK_HINT_PREFIX}{project.name}", style="dim")
+        hint = Text(f"{BACK_HINT_PREFIX}{project.name}", style="dim")
         parts: list[RenderableType] = [hint, Text()]
         detail = self.detail()
         error = self.panel.detail_error_for(project)
@@ -356,8 +380,9 @@ class LinearProjectIssues(GatedBodyView["LinearPanel"]):
         cursor = clamp_cursor(self.cursor, len(rows))
         viewer_name = self._viewer_name()
         budget = self.body_width()
+        tree = self._tree()
         card = _format_issues_card(
-            detail, viewer_name, colors, accent, cursor, budget, self.marquee.offset
+            detail, tree, viewer_name, colors, accent, cursor, budget, self.marquee.offset
         )
         parts.append(card)
         return Group(*parts)

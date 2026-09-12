@@ -214,20 +214,26 @@ class Panel(Vertical):
         """Cache keys pruning must keep beyond the shown items'; the base pins nothing."""
         return set()
 
+    def seen_items(self) -> tuple[Item, ...]:
+        """The items that take part in seen-state; every item unless a panel narrows it."""
+        return self.items
+
     def mark_seen(self, item: Item) -> None:
+        if item not in self.seen_items():
+            return
         self.seen.mark_seen(self.integration_id, item)
         self._save_seen()
         self.refresh()
 
     def mark_all_seen(self) -> None:
-        """Mark every currently-shown item seen and persist them."""
-        self.seen.mark_all_seen(self.integration_id, self.items)
+        """Mark every seen-participating item seen and persist the stamps."""
+        self.seen.mark_all_seen(self.integration_id, self.seen_items())
         self._save_seen()
         self.refresh()
 
     def mark_unseen(self) -> None:
         item = self.selected_item()
-        if item is None:
+        if item is None or item not in self.seen_items():
             return
         self.seen.mark_unseen(self.integration_id, item)
         self._save_seen()

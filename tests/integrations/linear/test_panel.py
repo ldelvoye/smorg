@@ -1,6 +1,7 @@
 """Tests for the Linear host panel: view delegation, never the network."""
 
 import pytest
+from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.widgets import Static
 
@@ -115,6 +116,10 @@ def test_help_bindings_follow_the_active_view():
     assert panel.help_bindings() is LinearIssues.BINDINGS
     panel.active_view = LinearView.ISSUE
     assert panel.help_bindings() is LinearIssueView.BINDINGS
+    listed_keys = {
+        binding.key for binding in LinearIssueView.BINDINGS if isinstance(binding, Binding)
+    }
+    assert {"enter", "escape", "backspace", "o"} <= listed_keys
 
 
 def _target(identifier: str) -> Target:
@@ -169,7 +174,7 @@ async def test_the_breadcrumb_never_cuts_an_id_in_the_live_render(monkeypatch):
         panel.open_target(_target("INFRAPLAT-1002"))
         panel.open_target(_target("INFRAPLAT-1003"))
         await pilot.pause()
-        body = panel.query_one("#reading-body", Static)
+        body = panel.query_one(LinearIssueView).query_one("#reading-body", Static)
         first_line = body.render_line(0).text.rstrip()
         assert "…" not in first_line
         assert first_line.endswith("INFRAPLAT-1003")
@@ -203,15 +208,16 @@ async def test_going_back_restores_the_previous_page_s_scroll(monkeypatch):
         await pilot.pause()
         panel.show_detail(panel.detail_key(issue("ENG-1")), detail(description=long_description))
         await pilot.pause()
-        reading = panel.query_one("#reading", VerticalScroll)
+        page = panel.query_one(LinearIssueView)
+        reading = page.query_one(".reading", VerticalScroll)
         reading.scroll_to(y=9, animate=False)
         await pilot.pause()
         panel.open_target(_target("ENG-2"))
         await pilot.pause()
-        assert panel.query_one("#reading", VerticalScroll).scroll_offset.y == 0
+        assert page.query_one(".reading", VerticalScroll).scroll_offset.y == 0
         await pilot.press("escape")
         await pilot.pause()
-        assert panel.query_one("#reading", VerticalScroll).scroll_offset.y == 9
+        assert page.query_one(".reading", VerticalScroll).scroll_offset.y == 9
 
 
 def test_home_url_is_the_org_home_or_linear_itself():

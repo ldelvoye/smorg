@@ -7,7 +7,7 @@ from textual.app import ComposeResult
 from smorg.core.contract import Item
 from smorg.integrations.linear.navigation import Target, Trail, issue_of_target
 from smorg.integrations.linear.palette import Glow, accent_for_background, glow_for_background
-from smorg.integrations.linear.source import Issue, Project, Viewer, _issue_url_base
+from smorg.integrations.linear.source import Issue, Project, Viewer, issue_url_base
 from smorg.integrations.linear.views import LinearView
 from smorg.integrations.linear.views.issue import LinearIssueView
 from smorg.integrations.linear.views.issues import LinearIssues
@@ -69,16 +69,6 @@ class LinearPanel(ViewHostPanel[LinearView]):
         yield LinearIssueView(self)
         yield LinearProjectView(self)
         yield LinearProjectIssues(self)
-
-    def fetch_started(self) -> None:
-        if not self.is_mounted:
-            return
-        self._menu().fetch_started()
-
-    def fetch_finished(self) -> None:
-        if not self.is_mounted:
-            return
-        self._menu().fetch_finished()
 
     def show_view(self, view: LinearView) -> None:
         super().show_view(view)
@@ -208,26 +198,13 @@ class LinearPanel(ViewHostPanel[LinearView]):
         issues = self.issues()
         if not issues:
             return _LINEAR_HOME
-        url_base = _issue_url_base(issues[0].url)
+        url_base = issue_url_base(issues[0].url)
         if not url_base:
             return _LINEAR_HOME
         return url_base.removesuffix("issue/")
 
-    def mark_all_seen(self) -> None:
-        self.seen.mark_all_seen(self.integration_id, self.issues())
-        self._save_seen()
-        self.refresh()
-
-    def mark_seen(self, item: Item) -> None:
-        if not isinstance(item, Issue):
-            return
-        super().mark_seen(item)
-
-    def mark_unseen(self) -> None:
-        item = self.selected_item()
-        if not isinstance(item, Issue):
-            return
-        super().mark_unseen()
+    def seen_items(self) -> tuple[Item, ...]:
+        return self.issues()
 
     def selected_item(self) -> Item | None:
         if self.active_view is LinearView.MENU:

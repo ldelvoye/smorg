@@ -253,6 +253,16 @@ def test_the_cursor_clamps_when_items_shrink():
     assert view.selected_url() == "https://linear.app/x/issue/ENG-1"
 
 
+def test_a_new_item_tuple_replaces_the_cached_grouping():
+    view = issues_with(issue("ENG-1"))
+    view._grouped()
+    view.panel.items = (issue("ENG-2"),)
+    first = view._grouped()
+    assert first[0].id == "ENG-2"
+    second = view._grouped()
+    assert second is first
+
+
 def test_the_selected_row_carries_the_selection_marker():
     view = issues_with(issue("ENG-1"), issue("ENG-2"))
     view.cursor = 1

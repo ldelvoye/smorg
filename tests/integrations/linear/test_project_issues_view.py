@@ -77,3 +77,34 @@ def test_a_long_selected_tree_title_slides_and_the_assignee_column_stays_put():
     assert still != slid
     assert still.endswith("   Scott") and slid.endswith("   Scott")
     assert len(still) == len(slid)
+
+
+def test_a_new_detail_replaces_the_cached_tree():
+    view = view_showing(project_detail())
+    key = LinearPanel.detail_key(project("Redis"))
+    warmed = view._tree_rows()
+    assert [row.issue.id for row in warmed] != ["Z"]
+
+    other = project_detail(issues=(project_issue("Z", "Todo", "unstarted"),))
+    view.panel.show_detail(key, other)
+    rows = view._tree_rows()
+    assert [row.issue.id for row in rows] == ["Z"]
+
+    first = view._tree()
+    view.panel.show_detail(key, other)
+    second = view._tree()
+    assert second is first
+
+
+def test_triage_issues_count_on_the_counts_line_but_never_root_the_tree():
+    detail = project_detail(
+        issues=(
+            project_issue("A", "In Progress", "started"),
+            project_issue("B", "Triage", "triage"),
+        )
+    )
+    text = rendered(view_showing(detail))
+    assert "1 triage" in text
+    groups = issue_tree(detail.issues)
+    roots = [row for _, _, rows in groups for row in rows if row.depth == 0]
+    assert len(roots) == 1

@@ -479,7 +479,7 @@ def _fetch_issue_detail(session: McpSession, item: Item) -> IssueDetail:
         "list_issues",
         {"parentId": item.id, "limit": SUB_ISSUE_FETCH_LIMIT, "fields": list(SUB_ISSUE_FIELDS)},
     )
-    url_base = _issue_url_base(item.url)
+    url_base = issue_url_base(item.url)
     parent_id = optional_string(issue_payload, "parentId")
     if parent_id:
         parent_payload = session.call("get_issue", {"id": parent_id})
@@ -620,7 +620,7 @@ def _sub_issues_of(payload: dict[str, Any], url_base: str) -> tuple[SubIssue, ..
     return tuple(children)
 
 
-def _issue_url_base(url: str) -> str:
+def issue_url_base(url: str) -> str:
     """ "https://linear.app/x/issue/ENG-1/slug" -> "https://linear.app/x/issue/"; "" if unknown."""
     marker = "/issue/"
     index = url.find(marker)

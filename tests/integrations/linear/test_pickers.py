@@ -6,6 +6,7 @@ from textual.widgets import Static
 from smorg.integrations.linear.navigation import Target
 from smorg.integrations.linear.source import ParentSummary, RelatedIssue, SubIssue
 from smorg.integrations.linear.views import LinearView
+from smorg.integrations.linear.views.issue import LinearIssueView
 from smorg.integrations.linear.views.pickers import OpenFromPicker, TrailPicker
 
 from .helpers import PanelHarness, detail, issue, panel_with
@@ -69,7 +70,7 @@ async def test_enter_toasts_instead_of_opening_when_there_is_nothing_or_no_detai
         await pilot.press("enter")
         await pilot.pause()
         assert notified == ["still loading", "nothing to open from here"]
-        assert isinstance(pilot.app.screen.query_one("#reading-body"), Static)
+        assert isinstance(panel.query_one(LinearIssueView).query_one("#reading-body"), Static)
 
     fresh_panel = panel_with(issue("ENG-1"))
     async with PanelHarness(fresh_panel).run_test(size=(120, 40)) as pilot:
