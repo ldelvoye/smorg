@@ -1,5 +1,13 @@
+from dataclasses import replace
+
 from smorg.integrations.linear.panel import LinearPanel
-from smorg.integrations.linear.views.project_issues import LinearProjectIssues, issue_tree
+from smorg.integrations.linear.views.project_issues import (
+    LinearProjectIssues,
+    TreeRow,
+    _format_tree_row,
+    issue_tree,
+)
+from smorg.shell.terminal_palette import StatusColors
 
 from .helpers import ISSUES, panel_with, project, project_detail, project_issue, viewer
 
@@ -56,3 +64,16 @@ def test_the_issues_card_opens_with_the_counts_and_marks_your_rows():
     assert c_cell.endswith("Scott")
     assert "├─" in _line_with(lines, "title of C") and "└─" in _line_with(lines, "title of B")
     assert "title of F" not in text and "title of G" not in text
+
+
+def test_a_long_selected_tree_title_slides_and_the_assignee_column_stays_put():
+    long_title = "an issue title that overflows the tree row by a wide margin " * 2
+    long_issue = replace(project_issue("A", assignee="Scott Strong"), title=long_title)
+    row = TreeRow(issue=long_issue, depth=0, prefix="├─ ")
+    colors = StatusColors(red="#f85149", yellow="#d29922", green="#3fb950")
+    still = _format_tree_row(row, True, "", colors, "#5e6ad2", 60, 0).plain
+    slid = _format_tree_row(row, True, "", colors, "#5e6ad2", 60, 9).plain
+
+    assert still != slid
+    assert still.endswith("   Scott") and slid.endswith("   Scott")
+    assert len(still) == len(slid)

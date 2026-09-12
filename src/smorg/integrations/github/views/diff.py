@@ -12,7 +12,6 @@ from textual.app import ComposeResult, RenderResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.geometry import Region
-from textual.timer import Timer
 from textual.widgets import Static
 
 from smorg.integrations.github.loading import GitHubLoading
@@ -26,6 +25,7 @@ from smorg.integrations.github.source import (
 )
 from smorg.shell.cards import SELECTED_MARK, format_card, format_card_title, format_count
 from smorg.shell.format import plain_lines
+from smorg.shell.marquee import MARQUEE_STYLE, RowMarquee, marquee_overflow, marquee_window
 from smorg.shell.panel import GutteredScroll
 from smorg.shell.terminal_palette import StatusColors
 from smorg.shell.view_host import HostedView
@@ -37,9 +37,6 @@ _BACK_HINT = "‹ esc — pull request"
 # The row width tracks #diff-files-scroll in DEFAULT_CSS: its 48 cells minus its side
 # padding (4) and the file-list card's border and padding (4).
 _FILE_ROW_WIDTH = 40
-_MARQUEE_TICK_SECONDS = 0.1
-# How long the marquee rests at either end of its sweep, counted in marquee ticks.
-_MARQUEE_HOLD_TICKS = 10
 
 
 def _format_files_count(diff: PullRequestDiff) -> str:
@@ -112,7 +109,7 @@ def _row_path_width(counts: str) -> int:
     return width
 
 
-def _format_file_row(file: FileDiff, selected: bool, marquee_offset: int) -> Text:
+def _format_full_file_row(file: FileDiff, selected: bool) -> Text:
     counts = _format_file_counts(file)
     row = Text()
     if selected:
@@ -123,22 +120,27 @@ def _format_file_row(file: FileDiff, selected: bool, marquee_offset: int) -> Tex
         path_style = ""
     row.append(" ")
     path_width = _row_path_width(counts)
-    if len(file.path) <= path_width:
-        shown_path = file.path
-    elif selected:
-        shown_path = file.path[marquee_offset : marquee_offset + path_width]
+    if selected:
+        path_start = len(row.plain)
+        row.append(file.path, style=path_style)
+        row.stylize(MARQUEE_STYLE, path_start, path_start + len(file.path))
+    elif len(file.path) <= path_width:
+        row.append(file.path, style=path_style)
     else:
-        # An unselected path truncates from the end; selecting it reveals the rest through
-        # the marquee.
         head = file.path[: path_width - 1]
-        shown_path = f"{head}…"
-    row.append(shown_path, style=path_style)
+        row.append(f"{head}…", style=path_style)
     if counts:
         row.append(" ")
         row.append(counts, style="dim")
-    row.no_wrap = True
-    row.overflow = "ellipsis"
     return row
+
+
+def _format_file_row(file: FileDiff, selected: bool, marquee_offset: int) -> Text:
+    row = _format_full_file_row(file, selected)
+    fitted = marquee_window(row, _FILE_ROW_WIDTH, marquee_offset)
+    fitted.no_wrap = True
+    fitted.overflow = "ellipsis"
+    return fitted
 
 
 def _format_file_title(file: FileDiff, colors: StatusColors) -> Text:
@@ -242,10 +244,7 @@ class GitHubDiffView(Vertical, HostedView):
         self.panel = panel
         self.selected_index = 0
         self._shown_request: DiffRequest | None = None
-        self._marquee_offset = 0
-        self._marquee_direction = 1
-        self._marquee_hold = 0
-        self._marquee_timer: Timer | None = None
+        self.marquee = RowMarquee(self, self._selected_overflow, self._refresh_file_list)
 
     def compose(self) -> ComposeResult:
         yield _DiffHeader(self)
@@ -258,17 +257,12 @@ class GitHubDiffView(Vertical, HostedView):
 
     def on_mount(self) -> None:
         self.refresh_content()
-        self._marquee_timer = self.set_interval(
-            _MARQUEE_TICK_SECONDS, self._tick_marquee, pause=True
-        )
 
     def on_show(self) -> None:
-        if self._marquee_timer is not None:
-            self._marquee_timer.resume()
+        self.marquee.start()
 
     def on_hide(self) -> None:
-        if self._marquee_timer is not None:
-            self._marquee_timer.pause()
+        self.marquee.stop()
 
     def refresh_content(self) -> None:
         if not self.is_mounted:
@@ -319,34 +313,21 @@ class GitHubDiffView(Vertical, HostedView):
             self.selected_index = len(files) - 1
         return self.selected_index != previous
 
-    def _tick_marquee(self) -> None:
-        if not self.is_mounted:
-            return
+    def _selected_overflow(self) -> int:
         diff = self._diff()
         if diff is None or not diff.files:
-            return
+            return 0
         file = diff.files[self.selected_index]
-        counts = _format_file_counts(file)
-        span = len(file.path) - _row_path_width(counts)
-        if span <= 0:
-            self._marquee_offset = 0
+        row = _format_full_file_row(file, True)
+        return marquee_overflow(row, _FILE_ROW_WIDTH)
+
+    def _refresh_file_list(self) -> None:
+        if not self.is_mounted:
             return
-        if self._marquee_hold > 0:
-            self._marquee_hold -= 1
-            return
-        next_offset = self._marquee_offset + self._marquee_direction
-        if next_offset > span or next_offset < 0:
-            self._marquee_direction = -self._marquee_direction
-            next_offset = self._marquee_offset + self._marquee_direction
-        self._marquee_offset = next_offset
-        if next_offset == 0 or next_offset == span:
-            self._marquee_hold = _MARQUEE_HOLD_TICKS
         self.query_one(_DiffFileList).refresh(layout=True)
 
     def _show_selection(self) -> None:
-        self._marquee_offset = 0
-        self._marquee_direction = 1
-        self._marquee_hold = _MARQUEE_HOLD_TICKS
+        self.marquee.reset()
         if not self.is_mounted:
             return
         self.query_one("#diff-card-scroll", VerticalScroll).scroll_home(animate=False)
@@ -373,7 +354,7 @@ class GitHubDiffView(Vertical, HostedView):
         for index, file in enumerate(diff.files):
             if rows:
                 rows.append(Text())
-            rows.append(_format_file_row(file, index == self.selected_index, self._marquee_offset))
+            rows.append(_format_file_row(file, index == self.selected_index, self.marquee.offset))
         count = _format_files_count(diff)
         title = format_card_title(f"files ({count})")
         return format_card(title, rows)
