@@ -20,12 +20,13 @@ from smorg.integrations.linear.mark import (
     Mark,
     mark_for,
     mark_lines,
-    paint_breathe,
     paint_dim,
     paint_draw_in,
     paint_flash,
     paint_resting,
+    paint_shine,
     paint_sweep,
+    shine_centre,
 )
 from smorg.integrations.linear.palette import Glow
 from smorg.integrations.linear.sky import LOOP_SECONDS, Star, build_sky, paint_sky
@@ -54,7 +55,7 @@ _TWINKLE_STARTS = _HOLD + _DRAW + _REST
 
 _SWEEP_SECONDS = 1.6
 _FLASH_SECONDS = 0.9
-_BREATHE_SECONDS = 2.6
+_SHINE_SECONDS = 3.0
 _TWINKLE_SECONDS = LOOP_SECONDS
 
 _PANEL_COLUMNS = 31
@@ -78,8 +79,8 @@ _HEAD_ROWS = _PANEL_ROWS - _TAIL_ROWS - 1
 _LEGEND_ROWS = _HEAD_ROWS - 3
 _STALE_LEGEND_ROWS = _HEAD_ROWS - 4
 
-# Past this the panel's unseen count takes the bold accent, so it peaks with the head.
-_UNSEEN_PEAK = 0.5
+# The unseen count takes the lit shade while the shine's line is inside the head.
+_HEAD_EXTENT = 0.25
 
 _LABEL_WIDTH = 13
 _COUNT_WIDTH = 3
@@ -226,12 +227,6 @@ def _paint_head_dim(mark: Mark, glow: Glow) -> Dots:
     return {dot: glow.dim for dot in head}
 
 
-def _swell(phase: float) -> float:
-    turn = 2 * math.pi * phase
-    wave = math.cos(turn)
-    return (1 - wave) / 2
-
-
 def _panel_rows_shown(phase: float, total: int) -> int:
     if phase <= _PANEL_START:
         return 1
@@ -282,11 +277,11 @@ def _format_greeting(viewer: Viewer | None) -> Text:
     return Text(f"welcome back, {viewer.handle}", style="bold")
 
 
-def _format_changed_line(changed: int, accent: str, glow: Glow, is_flash: bool) -> Text:
+def _format_changed_line(changed: int, accent: str, glow: Glow, is_lit: bool) -> Text:
     if changed == 0:
         return Text("you're all caught up", style="dim")
     body = f"{changed} changed since you looked"
-    if is_flash:
+    if is_lit:
         return Text(f"{CHANGED_MARK} {body}", style=glow.lit)
     line = Text()
     line.append(f"{CHANGED_MARK} ", style=accent)
@@ -513,7 +508,7 @@ class LinearMenu(Static, HostedView):
         return phase is not None
 
     @property
-    def breathing(self) -> bool:
+    def shining(self) -> bool:
         return self._changes_waiting
 
     def render(self) -> RenderResult:
@@ -620,14 +615,20 @@ class LinearMenu(Static, HostedView):
         run = elapsed - self._sweep_started_at
         return (run / _SWEEP_SECONDS) % 1.0
 
-    def _breathe_swell(self, elapsed: float) -> float:
+    def _shine_phase(self, elapsed: float) -> float:
         if not self._changes_waiting:
-            return 0.0
+            return 1.0
         flash_phase = self._flash_phase(elapsed)
         if flash_phase is not None:
-            return 0.0
-        phase = (elapsed / _BREATHE_SECONDS) % 1.0
-        return _swell(phase)
+            return 1.0
+        return (elapsed / _SHINE_SECONDS) % 1.0
+
+    def _shine_lit(self, elapsed: float) -> bool:
+        phase = self._shine_phase(elapsed)
+        centre = shine_centre(phase)
+        if centre is None:
+            return False
+        return centre < _HEAD_EXTENT
 
     def _sky_phase(self, elapsed: float) -> float:
         if not self.twinkling:
@@ -672,8 +673,8 @@ class LinearMenu(Static, HostedView):
         if sweep_phase is not None:
             return paint_sweep(mark, glow, sweep_phase)
         if self._changes_waiting:
-            breathe_phase = (elapsed / _BREATHE_SECONDS) % 1.0
-            return paint_breathe(mark, glow, breathe_phase)
+            shine_phase = self._shine_phase(elapsed)
+            return paint_shine(mark, glow, shine_phase)
         return paint_resting(mark, glow)
 
     def _format_panel(self, accent: str, glow: Glow, elapsed: float) -> list[Text]:
@@ -687,7 +688,7 @@ class LinearMenu(Static, HostedView):
             error_tail = _format_error_tail(self.destination_cursor)
             return _band_rows(error_head, error_tail)
         changed = self._changed()
-        head = self._format_head(changed, accent, glow)
+        head = self._format_head(changed, accent, glow, elapsed)
         tail = self._format_tail(changed, accent, glow, elapsed)
         if panel.state is PanelState.STALE:
             return _band_rows(head, tail)
@@ -695,7 +696,9 @@ class LinearMenu(Static, HostedView):
         arriving = head[:shown]
         return _band_rows(arriving, tail)
 
-    def _format_head(self, changed: frozenset[str], accent: str, glow: Glow) -> list[Text]:
+    def _format_head(
+        self, changed: frozenset[str], accent: str, glow: Glow, elapsed: float
+    ) -> list[Text]:
         panel = self.panel
         viewer = panel.viewer()
         rows: list[Text] = []
@@ -707,7 +710,11 @@ class LinearMenu(Static, HostedView):
         else:
             rows.append(_format_greeting(viewer))
             changed_count = len(changed)
-            rows.append(_format_changed_line(changed_count, accent, glow, self.flashing))
+            if self.flashing:
+                is_lit = True
+            else:
+                is_lit = self._shine_lit(elapsed)
+            rows.append(_format_changed_line(changed_count, accent, glow, is_lit))
             legend_room = _LEGEND_ROWS
         rows.append(Text())
         groups = _status_groups(panel.issues())
@@ -722,8 +729,7 @@ class LinearMenu(Static, HostedView):
         self, changed: frozenset[str], accent: str, glow: Glow, elapsed: float
     ) -> list[Text]:
         issues = self.panel.issues()
-        swell = self._breathe_swell(elapsed)
-        if swell > _UNSEEN_PEAK:
+        if self._shine_lit(elapsed):
             unseen_style = glow.lit
         else:
             unseen_style = accent

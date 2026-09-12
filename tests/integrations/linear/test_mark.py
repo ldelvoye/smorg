@@ -1,12 +1,13 @@
 from pathlib import Path
 
 from smorg.integrations.linear.mark import (
+    _SHINE_WIDTH,
     mark_for,
     mark_lines,
-    paint_breathe,
     paint_draw_in,
     paint_flash,
     paint_resting,
+    paint_shine,
     paint_sweep,
 )
 from smorg.integrations.linear.palette import Glow, glow_for_background
@@ -45,12 +46,21 @@ def test_painters_keep_the_cells_and_only_move_the_light():
     resting = paint_resting(mark, GLOW)
     assert set(resting) == set(mark.dots)
     assert set(resting.values()) == {GLOW.rest}
-    for painter in (paint_sweep, paint_flash, paint_breathe):
+    for painter in (paint_sweep, paint_flash, paint_shine):
         painted = painter(mark, GLOW, 0.5)
         assert set(painted) == set(mark.dots)
         assert set(painted.values()) <= {GLOW.rest, GLOW.lit}
     assert paint_flash(mark, GLOW, 1.0) == resting
-    assert paint_breathe(mark, GLOW, 0.0) == resting
+    assert paint_shine(mark, GLOW, 0.9) == resting
+
+    tail_pass = paint_shine(mark, GLOW, 0.0)
+    lit_positions: list[float] = []
+    for index, dot in enumerate(mark.dots):
+        if tail_pass[dot] == GLOW.lit:
+            lit_positions.append(mark.positions[index])
+    assert lit_positions
+    for position in lit_positions:
+        assert position >= 1.0 - _SHINE_WIDTH
 
 
 def test_the_draw_in_lands_the_head_before_the_tail_and_ends_at_rest():

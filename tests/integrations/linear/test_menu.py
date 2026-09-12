@@ -71,7 +71,7 @@ async def test_the_twinkle_waits_for_data_and_the_head_cascades_in_when_it_lands
         assert menu.twinkling is True
 
 
-def test_the_flash_fires_only_when_the_changed_set_grows_and_breathe_stops_on_opening_the_list():
+def test_the_flash_fires_only_when_the_changed_set_grows_and_the_shine_stops_on_opening_the_list():
     seen = SeenState({})
     menu = menu_with(issue("ENG-1"), seen=seen)
     menu.refresh_content()
@@ -83,18 +83,18 @@ def test_the_flash_fires_only_when_the_changed_set_grows_and_breathe_stops_on_op
     menu.panel.items = (viewer(), issue("ENG-1"), issue("ENG-2"))
     menu.refresh_content()
     assert menu.flashing is True
-    assert menu.breathing is True
+    assert menu.shining is True
 
     menu.acknowledge_changes()
-    assert menu.breathing is False
+    assert menu.shining is False
 
     menu.panel.items = (viewer(), issue("ENG-1"), issue("ENG-2"), issue("ENG-3"))
     menu.refresh_content()
-    assert menu.breathing is True
+    assert menu.shining is True
 
     menu.panel.items = (viewer(),)
     menu.refresh_content()
-    assert menu.breathing is False
+    assert menu.shining is False
 
 
 @pytest.mark.parametrize(
