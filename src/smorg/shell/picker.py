@@ -10,6 +10,7 @@ from textual.widgets import Static
 from smorg.shell.cards import SELECTED_MARK
 from smorg.shell.cursor import clamp_cursor, step_cursor
 from smorg.shell.format import plain_lines, truncating
+from smorg.shell.marquee import RowMarquee, marquee_overflow, marquee_window
 from smorg.shell.modal import ModalBox
 from smorg.shell.panel import GutteredScroll, ViewBody
 
@@ -41,6 +42,7 @@ class Picker(ModalBox):
         self._rows: list[Row] = []
         for _, section_rows in self._sections:
             self._rows.extend(section_rows)
+        self.marquee = RowMarquee(self, self._selected_overflow, self._refresh_body)
 
     def compose(self) -> ComposeResult:
         body = GutteredScroll(ViewBody(self.render_content, id="picker-body"), classes="box")
@@ -50,6 +52,13 @@ class Picker(ModalBox):
 
     def on_mount(self) -> None:
         self.call_after_refresh(self._scroll_selected_into_view)
+        self.marquee.start()
+
+    def on_screen_suspend(self) -> None:
+        self.marquee.stop()
+
+    def on_screen_resume(self) -> None:
+        self.marquee.start()
 
     def rows(self) -> list[Row]:
         return self._rows
@@ -79,9 +88,12 @@ class Picker(ModalBox):
                 line = Text()
                 if row_index == selected:
                     line.append(f"{SELECTED_MARK} ", style="bold")
+                    row_width = self._body_width() - len(f"{SELECTED_MARK} ")
+                    fitted = marquee_window(rendered, row_width, self.marquee.offset)
+                    line.append_text(fitted)
                 else:
                     line.append("  ")
-                line.append_text(rendered)
+                    line.append_text(rendered)
                 lines.append(line)
                 row_index += 1
         lines.append(Text())
@@ -92,6 +104,32 @@ class Picker(ModalBox):
     def content_lines(self) -> list[str]:
         """render_content flattened to plain text, so the two cannot drift apart."""
         return plain_lines(self.render_content())
+
+    def _body_width(self) -> int:
+        if not self.is_mounted:
+            return 0
+        body = self.query_one("#picker-body", Static)
+        return body.content_size.width
+
+    def _selected_row(self) -> Text | None:
+        rows = self.rows()
+        if not rows:
+            return None
+        index = clamp_cursor(self.cursor, len(rows))
+        rendered, _ = rows[index]
+        return rendered
+
+    def _selected_overflow(self) -> int:
+        rendered = self._selected_row()
+        if rendered is None:
+            return 0
+        width = self._body_width() - len(f"{SELECTED_MARK} ")
+        return marquee_overflow(rendered, width)
+
+    def _refresh_body(self) -> None:
+        if not self.is_mounted:
+            return
+        self.query_one("#picker-body", Static).refresh()
 
     def _selected_line(self) -> int:
         """The rendered line the cursor's row sits on, counting headings and separators."""
@@ -136,6 +174,7 @@ class Picker(ModalBox):
         if not rows:
             return
         self.cursor = step_cursor(self.cursor, offset, len(rows))
+        self.marquee.reset()
         self.query_one("#picker-body", Static).refresh()
         self._scroll_selected_into_view()
 

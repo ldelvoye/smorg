@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 from rich.console import Group, RenderableType
 from rich.text import Text
 from textual.binding import Binding
-from textual.widgets import Static
 
 from smorg.integrations.linear.glyphs import priority_rank, status_color, status_rank
 from smorg.integrations.linear.navigation import format_target_row, target_of_project_issue
@@ -17,9 +16,10 @@ from smorg.integrations.linear.source import ProjectDetail, ProjectIssue
 from smorg.integrations.linear.views import LinearView
 from smorg.integrations.linear.views.issue import _BACK_HINT_PREFIX
 from smorg.integrations.linear.views.issues import _format_group_title
-from smorg.shell.cards import SELECTED_MARK, format_card, format_card_title
+from smorg.shell.cards import CARD_CHROME, SELECTED_MARK, format_card, format_card_title
 from smorg.shell.cursor import clamp_cursor, step_cursor
 from smorg.shell.format import SELECTED_STYLE, plain_lines, truncating
+from smorg.shell.marquee import marquee_overflow, marquee_window
 from smorg.shell.terminal_palette import StatusColors
 from smorg.shell.view_host import GatedBodyView
 
@@ -33,8 +33,6 @@ _LAST_BRANCH = "└─ "
 _CONTINUE = "│  "
 _GAP = "   "
 _ASSIGNEE_WIDTH = 8
-
-_CARD_CHROME = 4
 
 
 @dataclass(frozen=True)
@@ -197,9 +195,7 @@ def _format_assignee(assignee: str, viewer_name: str, accent: str) -> Text:
     return Text(padded, style="dim")
 
 
-def _format_tree_row(
-    row: TreeRow, selected: bool, viewer_name: str, colors: StatusColors, accent: str, budget: int
-) -> Text:
+def _format_tree_line(row: TreeRow, selected: bool, colors: StatusColors, accent: str) -> Text:
     line = Text()
     if selected:
         line.append(SELECTED_MARK, style=SELECTED_STYLE)
@@ -214,7 +210,22 @@ def _format_tree_row(
         title_start = len(body.plain) - len(row.issue.title)
         body.stylize(SELECTED_STYLE, title_start, len(body.plain))
     line.append_text(body)
+    return line
+
+
+def _format_tree_row(
+    row: TreeRow,
+    selected: bool,
+    viewer_name: str,
+    colors: StatusColors,
+    accent: str,
+    budget: int,
+    marquee_offset: int,
+) -> Text:
+    line = _format_tree_line(row, selected, colors, accent)
     title_width = budget - _ASSIGNEE_WIDTH - 1
+    if selected:
+        line = marquee_window(line, title_width, marquee_offset)
     line.truncate(title_width, overflow="ellipsis", pad=True)
     assignee = _format_assignee(row.issue.assignee, viewer_name, accent)
     line.append_text(assignee)
@@ -228,11 +239,12 @@ def _format_issues_card(
     accent: str,
     cursor: int,
     budget: int,
+    marquee_offset: int,
 ) -> RenderableType:
     title = format_card_title(f"issues ({len(detail.issues)})", accent)
     if not detail.issues:
         return format_card(title, [Text("no issues", style="dim")])
-    inner = budget - _CARD_CHROME
+    inner = budget - CARD_CHROME
     tallies = _status_tallies(detail.issues)
     body: list[RenderableType] = [_format_issue_counts(tallies, colors, accent)]
     position = 0
@@ -242,7 +254,10 @@ def _format_issues_card(
         body.append(_format_group_title(status, status_type, count, colors, accent))
         for row in rows:
             selected = position == cursor
-            body.append(_format_tree_row(row, selected, viewer_name, colors, accent, inner))
+            row_text = _format_tree_row(
+                row, selected, viewer_name, colors, accent, inner, marquee_offset
+            )
+            body.append(row_text)
             position += 1
     return format_card(title, body)
 
@@ -283,14 +298,6 @@ class LinearProjectIssues(GatedBodyView["LinearPanel"]):
             return ""
         return viewer.name
 
-    def _budget(self) -> int:
-        if not self.is_mounted:
-            return 80
-        body = self.query_one("#body", Static)
-        if body.size.width > 0:
-            return body.size.width
-        return 80
-
     def selected_issue(self) -> ProjectIssue | None:
         rows = self._tree_rows()
         if not rows:
@@ -303,6 +310,7 @@ class LinearProjectIssues(GatedBodyView["LinearPanel"]):
         if not rows:
             return
         self.cursor = step_cursor(self.cursor, offset, len(rows))
+        self.marquee.reset()
         self.panel.refresh()
         self.scroll_to_selection()
 
@@ -347,9 +355,25 @@ class LinearProjectIssues(GatedBodyView["LinearPanel"]):
         rows = self._tree_rows()
         cursor = clamp_cursor(self.cursor, len(rows))
         viewer_name = self._viewer_name()
-        budget = self._budget()
-        parts.append(_format_issues_card(detail, viewer_name, colors, accent, cursor, budget))
+        budget = self.body_width()
+        card = _format_issues_card(
+            detail, viewer_name, colors, accent, cursor, budget, self.marquee.offset
+        )
+        parts.append(card)
         return Group(*parts)
+
+    def selected_overflow(self) -> int:
+        rows = self._tree_rows()
+        if not rows:
+            return 0
+        index = clamp_cursor(self.cursor, len(rows))
+        row = rows[index]
+        colors = self.panel.status_colors()
+        accent = self.panel.accent()
+        inner = self.body_width() - CARD_CHROME
+        line = _format_tree_line(row, False, colors, accent)
+        title_width = inner - _ASSIGNEE_WIDTH - 1
+        return marquee_overflow(line, title_width)
 
     def content_lines(self) -> list[str]:
         return plain_lines(self.render_view())

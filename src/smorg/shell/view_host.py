@@ -11,7 +11,8 @@ from textual.geometry import Region, Spacing
 from textual.widget import Widget
 from textual.widgets import Static
 
-from smorg.shell.format import selected_line
+from smorg.shell.format import PLAIN_WIDTH, selected_line
+from smorg.shell.marquee import RowMarquee
 from smorg.shell.panel import GutteredScroll, Panel, PanelState, ViewBody
 
 _CELL_LINES = 2
@@ -43,6 +44,13 @@ class GatedBodyView[P: Panel](GutteredScroll, HostedView):
         super().__init__()
         self.panel = panel
         self.cursor = 0
+        self.marquee = RowMarquee(self, self.selected_overflow, self._repaint_body)
+
+    def on_show(self) -> None:
+        self.marquee.start()
+
+    def on_hide(self) -> None:
+        self.marquee.stop()
 
     def compose_content(self) -> ComposeResult:
         yield ViewBody(self._render_body, id="body")
@@ -60,6 +68,26 @@ class GatedBodyView[P: Panel](GutteredScroll, HostedView):
         if not self.is_mounted:
             return
         self.query_one("#body", Static).refresh(layout=True)
+
+    def _repaint_body(self) -> None:
+        if not self.is_mounted:
+            return
+        self.query_one("#body", Static).refresh()
+
+    def body_width(self) -> int:
+        """The body's content width, or the plain-lines width before the view is mounted and
+        measured."""
+        if not self.is_mounted:
+            return PLAIN_WIDTH
+        body = self.query_one("#body", Static)
+        width = body.content_size.width
+        if width <= 0:
+            return PLAIN_WIDTH
+        return width
+
+    def selected_overflow(self) -> int:
+        """How far the selected row overflows the body; zero here, views with a marquee override."""
+        return 0
 
     def scroll_to_selection(self) -> None:
         """Bring the selected two-line cell into view with a line of context on either side; the

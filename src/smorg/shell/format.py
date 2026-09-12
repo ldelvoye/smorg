@@ -17,6 +17,9 @@ _SELECTED_KEY = "selected"
 SELECTED_STYLE = Style(bold=True, meta={_SELECTED_KEY: True})
 """The style of the selection cursor mark; selected_line() finds the line that carries it."""
 
+PLAIN_WIDTH = 80
+"""The column count plain_lines() and an unmeasured view body assume."""
+
 
 def age(moment: datetime) -> str:
     """How long ago `moment` was, as a short "5m" / "3h" / "2d" label."""
@@ -83,7 +86,7 @@ def format_hidden_line[T](shown: Newest[T], noun: str) -> Text:
     return Text(f"… {count} earlier {label}", style="dim")
 
 
-def plain_lines(renderable: RenderableType, width: int = 80) -> list[str]:
+def plain_lines(renderable: RenderableType, width: int = PLAIN_WIDTH) -> list[str]:
     """The renderable flattened to plain text lines, as a `width`-column terminal would show it."""
     console = Console(width=width, file=io.StringIO(), force_terminal=False)
     with console.capture() as capture:

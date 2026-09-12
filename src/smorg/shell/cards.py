@@ -14,6 +14,8 @@ CHANGED_MARK = "●"
 CARD_BORDER_STYLE = "dim"
 # Card titles sit on the dim border; "not dim" stops the border's dim washing their color.
 CARD_TITLE_STYLE = "bold not dim"
+CARD_CHROME = 4
+"""The columns a card's border and padding take from the width its body has."""
 _MARKED_CELL_INDENT = " " * 4
 
 

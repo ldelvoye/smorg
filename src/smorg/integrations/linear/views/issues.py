@@ -18,9 +18,10 @@ from smorg.integrations.linear.glyphs import (
 )
 from smorg.integrations.linear.source import Issue
 from smorg.integrations.linear.views import LinearView
-from smorg.shell.cards import format_card, format_card_title, format_marks
+from smorg.shell.cards import CARD_CHROME, format_card, format_card_title, format_marks
 from smorg.shell.cursor import clamp_cursor, step_cursor
 from smorg.shell.format import age, plain_lines, truncating
+from smorg.shell.marquee import MARQUEE_STYLE, marquee_overflow, marquee_window
 from smorg.shell.terminal_palette import StatusColors
 from smorg.shell.view_host import GatedBodyView
 
@@ -41,6 +42,14 @@ def _format_group_title(
     else:
         tint = color
     return format_card_title(f"{disc} {status} ({count})", tint)
+
+
+def _id_width(issues: tuple[Issue, ...]) -> int:
+    """One id column width for the whole list, so the title column never shifts between groups."""
+    widths = [len(issue.id) for issue in issues]
+    if not widths:
+        return 0
+    return max(widths)
 
 
 def _format_row_meta(issue: Issue) -> Text:
@@ -115,6 +124,7 @@ class LinearIssues(GatedBodyView["LinearPanel"]):
         if not issues:
             return
         self.cursor = step_cursor(self.cursor, offset, len(issues))
+        self.marquee.reset()
         self.panel.refresh()
         self.scroll_to_selection()
 
@@ -143,8 +153,7 @@ class LinearIssues(GatedBodyView["LinearPanel"]):
             selected = None
         colors = self.panel.status_colors()
         accent = self.panel.accent()
-        # One width for the whole list, so the title column never shifts at a group boundary.
-        id_width = max((len(issue.id) for issue in issues), default=0)
+        id_width = _id_width(issues)
         parts: list[RenderableType] = []
         for index, (status, status_type, members) in enumerate(_status_groups(issues)):
             if index > 0:
@@ -177,14 +186,33 @@ class LinearIssues(GatedBodyView["LinearPanel"]):
         disc = status_disc(issue.status, issue.status_type)
         head.append(disc, style=stage_color)
         head.append(" ")
+        title_start = len(head.plain)
         if selected:
             head.append(issue.title, style="bold")
         else:
             head.append(issue.title)
+        head.stylize(MARQUEE_STYLE, title_start, title_start + len(issue.title))
+        if selected:
+            head = marquee_window(head, self._row_width(), self.marquee.offset)
 
         meta = Text(_META_INDENT)
         meta.append_text(_format_row_meta(issue))
         return truncating(head), truncating(meta)
+
+    def selected_overflow(self) -> int:
+        issues = self._grouped()
+        if not issues:
+            return 0
+        cursor = clamp_cursor(self.cursor, len(issues))
+        selected = issues[cursor]
+        id_width = _id_width(issues)
+        colors = self.panel.status_colors()
+        accent = self.panel.accent()
+        head, _ = self._format_cell(selected, False, id_width, colors, accent)
+        return marquee_overflow(head, self._row_width())
+
+    def _row_width(self) -> int:
+        return self.body_width() - CARD_CHROME
 
     def content_lines(self) -> list[str]:
         """render_view flattened to plain text, so the two cannot drift apart."""

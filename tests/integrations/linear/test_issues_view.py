@@ -145,6 +145,24 @@ def test_a_cell_is_two_lines_with_the_meta_under_the_id_column(monkeypatch):
     assert "Platform · 3h" in lines[row_indexes[0] + 1]
 
 
+def test_a_long_selected_title_slides_with_the_marquee_and_an_unselected_one_clips():
+    long_title = "a title that is far too long for the eighty columns the body offers " * 2
+    first = replace(issue("ENG-1"), title=long_title)
+    second = replace(issue("ENG-2"), title=long_title)
+    view = issues_with(first, second)
+    view.marquee._marquee.offset = 7
+    colors = view.panel.status_colors()
+    accent = view.panel.accent()
+    head, _ = view._format_cell(first, True, 5, colors, accent)
+    other, _ = view._format_cell(second, False, 5, colors, accent)
+
+    assert long_title[7:20] in head.plain
+    assert head.plain.startswith("▸")
+    assert len(head.plain) == 76
+    assert other.plain.endswith(long_title[-10:])
+    assert other.overflow == "ellipsis"
+
+
 def test_a_light_background_picks_the_brand_indigo_and_a_dark_one_the_lighter_tint():
     assert accent_for_background((250, 250, 250)) == "#5e6ad2"
     assert accent_for_background((10, 10, 10)) == "#828fff"
@@ -189,11 +207,14 @@ def test_two_unknown_same_type_status_groups_sort_alphabetically():
 
 
 def test_rows_truncate_instead_of_wrapping():
-    long_title = replace(issue("ENG-1"), title="a title far too long to fit " + "x" * 200)
-    lines = issues_with(long_title).content_lines()
-    rows = [line for line in lines if "ENG-1" in line]
-    assert len(rows) == 1
-    assert "…" in rows[0]
+    long_title = "a title far too long to fit " + "x" * 200
+    selected = replace(issue("ENG-1"), title=long_title)
+    unselected = replace(issue("ENG-2"), title=long_title)
+    lines = issues_with(selected, unselected).content_lines()
+    rows = [line for line in lines if "ENG-" in line]
+    assert len(rows) == 2
+    assert "…" not in rows[0]
+    assert "…" in rows[1]
 
 
 def test_no_issue_is_selected_when_the_panel_is_empty():

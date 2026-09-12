@@ -21,6 +21,7 @@ from smorg.integrations.linear.source import (
 )
 from smorg.integrations.linear.views import LinearView
 from smorg.shell.format import truncating
+from smorg.shell.marquee import MARQUEE_STYLE
 from smorg.shell.terminal_palette import StatusColors
 
 UNKNOWN_UPDATED_AT = datetime(1970, 1, 1, tzinfo=UTC)
@@ -228,10 +229,12 @@ def format_target_row(target: Target, colors: StatusColors, accent: str, dim_tit
     else:
         row.append(target.id, style="dim")
     row.append("  ")
+    title_start = len(row.plain)
     if dim_title:
         row.append(target.title, style="dim")
     else:
         row.append(target.title)
+    row.stylize(MARQUEE_STYLE, title_start, title_start + len(target.title))
     return truncating(row)
 
 
@@ -242,10 +245,12 @@ def format_project_row(
     glyph = project_glyph(project.status_type)
     row.append(glyph, style=status_color(project.status, project.status_type, colors, accent))
     row.append(" ")
+    title_start = len(row.plain)
     if dim_title:
         row.append(project.name, style="dim")
     else:
         row.append(project.name)
+    row.stylize(MARQUEE_STYLE, title_start, title_start + len(project.name))
     return row
 
 

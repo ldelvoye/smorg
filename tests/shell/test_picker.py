@@ -7,6 +7,7 @@ from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.widgets import Static
 
+from smorg.shell.marquee import MARQUEE_HOLD_TICKS, MARQUEE_STYLE
 from smorg.shell.picker import Picker, Row, Section
 
 
@@ -108,6 +109,29 @@ async def test_the_cursor_still_moves_and_stays_visible_when_the_list_overflows(
         await pilot.press("enter")
         await pilot.pause()
     assert app.result == "ENG-43"
+
+
+@pytest.mark.asyncio
+async def test_a_long_selected_row_slides_to_its_tail_and_back():
+    title = "a title far longer than the picker body can show " * 3
+    row = Text("x ")
+    start = len(row.plain)
+    row.append(title)
+    row.stylize(MARQUEE_STYLE, start, start + len(title))
+    sections: list[Section] = [("", [(row, 1), (Text("short"), 2)])]
+    app = _Harness(sections)
+    async with app.run_test(size=(60, 12)) as pilot:
+        app.open_picker()
+        await pilot.pause()
+        picker = app.screen
+        assert isinstance(picker, Picker)
+        head = picker.content_lines()[0]
+        for _ in range(MARQUEE_HOLD_TICKS + 5):
+            picker.marquee._tick(0.0)
+        slid = picker.content_lines()[0]
+        assert slid != head
+        assert slid.startswith("▸ x ")
+        assert "▸ x a title far" not in slid
 
 
 @pytest.mark.asyncio
