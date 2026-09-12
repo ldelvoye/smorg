@@ -297,15 +297,15 @@ def _issue_of(raw: Any) -> Issue:
     if not isinstance(raw, dict):
         raise Malformed(f"an issue was {type(raw).__name__}, expected an object")
     return Issue(
-        id=required_string(raw, "id"),
+        id=sanitize_line(required_string(raw, "id")),
         updated_at=timestamp(raw, "updatedAt"),
         url=required_string(raw, "url"),
-        title=required_string(raw, "title"),
-        status=required_string(raw, "status"),
+        title=sanitize_line(required_string(raw, "title")),
+        status=sanitize_line(required_string(raw, "status")),
         status_type=required_string(raw, "statusType"),
-        team=optional_string(raw, "team"),
+        team=sanitize_line(optional_string(raw, "team")),
         priority=_priority_of(raw),
-        project=optional_string(raw, "project"),
+        project=sanitize_line(optional_string(raw, "project")),
     )
 
 

@@ -3,7 +3,11 @@
 import re
 from pathlib import Path
 
-INTEGRATIONS = Path("src") / "smorg" / "integrations"
+from smorg.core.registry import manifests
+
+# Anchored to this file, not the working directory: a relative path finds nothing when pytest
+# runs from anywhere else, and every check below then passes having read no source at all.
+INTEGRATIONS = Path(__file__).parents[1] / "src" / "smorg" / "integrations"
 
 # The manifest is the seam itself: it hands fetch through to the source.
 _SEAM_MODULES = {"manifest.py", "__init__.py"}
@@ -25,6 +29,25 @@ def _display_modules() -> list[Path]:
             continue
         modules.append(module)
     return sorted(modules)
+
+
+def _package_source(integration_id: str) -> str:
+    """One integration's whole package as text, for checks that read source instead of importing."""
+    package = INTEGRATIONS / integration_id
+    modules = sorted(package.glob("**/*.py"))
+    texts = [module.read_text() for module in modules]
+    return "\n".join(texts)
+
+
+def test_every_declared_action_key_is_bound():
+    offenders: list[str] = []
+    for manifest in manifests():
+        source = _package_source(manifest.id)
+        for action in manifest.actions:
+            binding = f'Binding("{action.key}"'
+            if binding not in source:
+                offenders.append(f"{manifest.id} declares {action.key!r}")
+    assert offenders == [], f"the help overlay advertises keys no panel binds: {offenders}"
 
 
 def test_panels_and_views_never_fetch():
