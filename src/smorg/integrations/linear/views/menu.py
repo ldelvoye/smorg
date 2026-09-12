@@ -92,8 +92,6 @@ _DESTINATIONS: tuple[tuple[str, LinearView], ...] = (
     ("projects", LinearView.PROJECTS),
 )
 
-_LANDED_STATES = (PanelState.READY, PanelState.EMPTY)
-
 
 @dataclass(frozen=True)
 class _Block:
@@ -492,7 +490,7 @@ class LinearMenu(Static, HostedView):
 
     @property
     def twinkling(self) -> bool:
-        if self.panel.state not in _LANDED_STATES:
+        if self.panel.state is not PanelState.READY:
             return False
         if self._data_landed_at is None:
             return False
@@ -554,7 +552,7 @@ class LinearMenu(Static, HostedView):
         webbrowser.open(home)
 
     def _note_data(self) -> None:
-        if self.panel.state not in _LANDED_STATES:
+        if self.panel.state is not PanelState.READY:
             return
         if self._data_landed_at is None:
             self._data_landed_at = self._elapsed

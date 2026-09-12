@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
-import webbrowser
 from datetime import datetime
 from typing import TYPE_CHECKING
 
 from rich.console import Group, RenderableType
-from rich.table import Table
 from rich.text import Text
-from textual import events
-from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, VerticalScroll
-from textual.widgets import Static
 
 from smorg.core.contract import Newest
 from smorg.integrations.linear.dates import target_label
@@ -22,7 +16,6 @@ from smorg.integrations.linear.navigation import (
     Target,
     Visit,
     format_target_row,
-    format_trail,
     target_of_parent,
     target_of_sub_issue,
     targets_of,
@@ -34,33 +27,31 @@ from smorg.integrations.linear.source import (
     RelatedIssue,
     Transition,
 )
-from smorg.integrations.linear.views.pickers import open_from_picker, trail_picker
+from smorg.integrations.linear.views.page import SUBHEADING_STYLE, LinearPage
+from smorg.integrations.linear.views.pickers import open_from_picker
+from smorg.integrations.linear.views.properties import (
+    GLYPH_ASSIGNEE,
+    GLYPH_DUE,
+    GLYPH_LINK,
+    format_property_row,
+    join_inline,
+)
 from smorg.shell.cards import format_box, format_card, format_card_title
-from smorg.shell.format import age, format_hidden_line, plain_lines, truncating
+from smorg.shell.format import age, format_hidden_line, truncating
 from smorg.shell.markdown import Markdown
-from smorg.shell.panel import GutteredScroll, ViewBody
 from smorg.shell.terminal_palette import StatusColors
-from smorg.shell.view_host import HostedView
 
 if TYPE_CHECKING:
     from smorg.integrations.linear.panel import LinearPanel
 
-_BACK_HINT_PREFIX = "‹ esc — "
-_BACK_HINT_GAP = 3
-NARROW_BELOW = 90
-SIDEBAR_WIDTH = 34
 ACTIVITY_LIMIT = 8
 
 _GLYPH_PROJECT = "▣"
 _GLYPH_MILESTONE = "◇"
 _GLYPH_ESTIMATE = "◭"
-_GLYPH_DUE = "◷"
-_GLYPH_ASSIGNEE = "@"
-_GLYPH_LINK = "↗"
 _GLYPH_LABEL = "●"
 _GLYPH_RELATED = "◌"
 _GLYPH_BLOCKED_BY = "⊘"
-_SUBHEADING_STYLE = "dim"
 
 _Event = Comment | Transition
 
@@ -90,14 +81,6 @@ def _format_due(iso_date: str) -> str:
     return target_label(iso_date, "day")
 
 
-def _format_row(glyph: str, glyph_style: str, value: str, value_style: str = "") -> Text:
-    row = Text()
-    row.append(glyph, style=glyph_style)
-    row.append(" ")
-    row.append(value, style=value_style)
-    return truncating(row)
-
-
 def _format_properties(
     issue: Issue, detail: IssueDetail | None, colors: StatusColors, accent: str
 ) -> list[Text]:
@@ -111,9 +94,9 @@ def _format_properties(
     stage_color = status_color(status, status_type, colors, accent)
     disc = status_disc(status, status_type)
     if status:
-        rows = [_format_row(disc, stage_color, status)]
+        rows = [format_property_row(disc, stage_color, status)]
     else:
-        rows = [_format_row("◌", "dim", "loading…", "dim")]
+        rows = [format_property_row("◌", "dim", "loading…", "dim")]
     if priority and priority != "No priority":
         priority_row = format_priority(priority, colors, stage_color)
         priority_row.append(" ")
@@ -122,23 +105,23 @@ def _format_properties(
     if detail is None:
         return rows
     if detail.assignee:
-        rows.append(_format_row(_GLYPH_ASSIGNEE, accent, detail.assignee))
+        rows.append(format_property_row(GLYPH_ASSIGNEE, accent, detail.assignee))
     if detail.estimate:
-        rows.append(_format_row(_GLYPH_ESTIMATE, accent, detail.estimate))
+        rows.append(format_property_row(_GLYPH_ESTIMATE, accent, detail.estimate))
     if detail.due_date:
-        rows.append(_format_row(_GLYPH_DUE, accent, _format_due(detail.due_date)))
+        rows.append(format_property_row(GLYPH_DUE, accent, _format_due(detail.due_date)))
     return rows
 
 
 def _format_labels(detail: IssueDetail) -> list[Text]:
     rows: list[Text] = []
     for label in detail.labels:
-        rows.append(_format_row(_GLYPH_LABEL, "dim", label))
+        rows.append(format_property_row(_GLYPH_LABEL, "dim", label))
     return rows
 
 
 def _format_project(detail: IssueDetail, accent: str) -> list[Text]:
-    rows = [_format_row(_GLYPH_PROJECT, accent, detail.project)]
+    rows = [format_property_row(_GLYPH_PROJECT, accent, detail.project)]
     if detail.milestone:
         milestone = Text()
         milestone.append("└ ", style="dim")
@@ -178,7 +161,7 @@ def _format_related(detail: IssueDetail, colors: StatusColors) -> list[Text]:
 def _format_links(detail: IssueDetail, accent: str) -> list[Text]:
     rows: list[Text] = []
     for link in detail.links:
-        rows.append(_format_row(_GLYPH_LINK, accent, link.title, f"link {link.url}"))
+        rows.append(format_property_row(GLYPH_LINK, accent, link.title, f"link {link.url}"))
     return rows
 
 
@@ -299,25 +282,15 @@ def _format_activity_card(detail: IssueDetail, colors: StatusColors, accent: str
     return format_card(title, body)
 
 
-def _join_inline(rows: list[Text]) -> Text:
-    line = Text()
-    for index, row in enumerate(rows):
-        if index > 0:
-            line.append(" · ", style="dim")
-        row.no_wrap = False
-        line.append_text(row)
-    return line
-
-
 def _format_compact_header(
     issue: Issue, detail: IssueDetail | None, colors: StatusColors, accent: str
 ) -> list[Text]:
     """The sidebar's properties, labels, and project as wrapping lines under the title."""
-    lines = [_join_inline(_format_properties(issue, detail, colors, accent))]
+    lines = [join_inline(_format_properties(issue, detail, colors, accent))]
     if detail is None:
         return lines
     if detail.labels:
-        lines.append(_join_inline(_format_labels(detail)))
+        lines.append(join_inline(_format_labels(detail)))
     if detail.project:
         project = Text()
         project.append(_GLYPH_PROJECT, style=accent)
@@ -345,60 +318,21 @@ def _format_trailing_cards(
     return cards
 
 
-class LinearIssueView(Horizontal, HostedView):
+class LinearIssueView(LinearPage):
     BINDINGS = [
         Binding("enter", "open_from_here", "open from here", show=False),
-        Binding("backspace", "show_trail", "back to…", show=False),
-        Binding("o", "open_in_linear", "open in Linear", show=False),
-        Binding("escape", "back", "back", show=False),
+        *LinearPage.BINDINGS,
     ]
 
-    DEFAULT_CSS = f"""
-    LinearIssueView {{ max-width: 120; }}
-    LinearIssueView > #reading {{ width: 1fr; }}
-    LinearIssueView > #sidebar {{ dock: right; width: {SIDEBAR_WIDTH}; }}
-    LinearIssueView #reading-body {{ height: auto; }}
-    LinearIssueView #sidebar-body {{ height: auto; }}
-    """
-
     def __init__(self, panel: LinearPanel) -> None:
-        super().__init__()
-        self.panel = panel
-        self.narrow = False
+        super().__init__(panel)
         self.picker_cursor = 0
 
-    def compose(self) -> ComposeResult:
-        reading = GutteredScroll(ViewBody(self._render_reading, id="reading-body"), id="reading")
-        reading.can_focus = True
-        yield reading
-        sidebar = GutteredScroll(ViewBody(self._render_sidebar, id="sidebar-body"), id="sidebar")
-        sidebar.can_focus = False
-        yield sidebar
-
-    def _render_reading(self) -> RenderableType:
-        issue = self.panel.viewed
-        if issue is None:
-            return Text()
-        return self.render_reading(issue, self.detail(), self.narrow)
-
-    def _render_sidebar(self) -> RenderableType:
-        issue = self.panel.viewed
-        if issue is None:
-            return Text()
-        return self.render_sidebar(issue, self.detail())
-
-    def on_mount(self) -> None:
-        self._sync_columns()
-
-    def on_resize(self, event: events.Resize) -> None:
-        self._sync_columns()
-
-    def focus(self, scroll_visible: bool = True):
-        self.query_one("#reading", VerticalScroll).focus(scroll_visible)
-        return self
+    def page_item(self) -> Issue | None:
+        return self.panel.viewed
 
     def detail(self) -> IssueDetail | None:
-        issue = self.panel.viewed
+        issue = self.page_item()
         if issue is None:
             return None
         raw = self.panel.detail_for(issue)
@@ -406,49 +340,15 @@ class LinearIssueView(Horizontal, HostedView):
             return raw
         return None
 
-    def reading_scroll_y(self) -> int:
-        if not self.is_mounted:
-            return 0
-        return int(self.query_one("#reading", VerticalScroll).scroll_offset.y)
-
     def restore_view_state(self, visit: Visit) -> None:
         self.picker_cursor = visit.picker_cursor
-        if not self.is_mounted:
-            return
-        reading = self.query_one("#reading", VerticalScroll)
-        reading.scroll_to(y=visit.scroll_y, animate=False)
+        super().restore_view_state(visit)
 
-    def _back_hint(self) -> str:
-        labels = self.panel.trail_labels()
-        if len(labels) < 2:
-            root_label = str(self.panel.trail.root)
-            return f"{_BACK_HINT_PREFIX}{root_label}"
-        return f"{_BACK_HINT_PREFIX}{labels[-2]}"
-
-    def _budget(self) -> int:
-        if not self.is_mounted:
-            return 80
-        body = self.query_one("#reading-body", Static)
-        if body.size.width > 0:
-            return body.size.width
-        return 80
-
-    def _sync_columns(self) -> None:
-        if not self.is_mounted:
-            return
-        self.narrow = self.size.width < NARROW_BELOW
-        self.query_one("#sidebar", VerticalScroll).display = not self.narrow
-        self.refresh_content()
-
-    def refresh_content(self) -> None:
-        if not self.is_mounted:
-            return
-        self.query_one("#reading-body", Static).refresh(layout=True)
-        self.query_one("#sidebar-body", Static).refresh(layout=True)
-
-    def render_reading(
-        self, issue: Issue, detail: IssueDetail | None, narrow: bool
-    ) -> RenderableType:
+    def render_reading(self, narrow: bool) -> RenderableType:
+        issue = self.page_item()
+        if issue is None:
+            return Text()
+        detail = self.detail()
         colors = self.panel.status_colors()
         accent = self.panel.accent()
         parts: list[RenderableType] = [*self._format_trail_lines(narrow), Text()]
@@ -477,51 +377,23 @@ class LinearIssueView(Horizontal, HostedView):
                 parts.append(card)
         return Group(*parts)
 
-    def _format_trail_lines(self, narrow: bool) -> list[RenderableType]:
-        hint = Text(self._back_hint(), style="dim")
-        labels = self.panel.trail_labels()
-        root_label = str(self.panel.trail.root)
-        if narrow:
-            trail = format_trail(labels, self._budget(), root_label)
-            return [hint, trail]
-        budget = self._budget() - hint.cell_len - _BACK_HINT_GAP
-        trail = format_trail(labels, budget, root_label)
-        line = Table.grid(expand=True)
-        line.add_column(no_wrap=True)
-        line.add_column(justify="right", no_wrap=True, overflow="ellipsis")
-        line.add_row(hint, trail)
-        return [line]
-
-    def render_sidebar(self, issue: Issue, detail: IssueDetail | None) -> RenderableType:
+    def render_sidebar(self) -> RenderableType:
+        issue = self.page_item()
+        if issue is None:
+            return Text()
+        detail = self.detail()
         colors = self.panel.status_colors()
         accent = self.panel.accent()
         body: list[RenderableType] = []
         for heading, rows in _format_sidebar_sections(issue, detail, colors, accent):
             if body:
                 body.append(Text())
-            body.append(Text(heading, style=_SUBHEADING_STYLE))
+            body.append(Text(heading, style=SUBHEADING_STYLE))
             body.extend(rows)
         return format_box(body)
 
-    def content_lines(self) -> list[str]:
-        """render_reading and render_sidebar flattened to plain text, reading column first."""
-        issue = self.panel.viewed
-        if issue is None:
-            return []
-        budget = self._budget()
-        lines = plain_lines(self.render_reading(issue, self.detail(), self.narrow), budget)
-        if not self.narrow:
-            lines.extend(plain_lines(self.render_sidebar(issue, self.detail()), budget))
-        return lines
-
-    def action_open_in_linear(self) -> None:
-        issue = self.panel.viewed
-        if issue is None:
-            return
-        webbrowser.open(issue.url)
-
     def action_open_from_here(self) -> None:
-        issue = self.panel.viewed
+        issue = self.page_item()
         if issue is None:
             return
         detail = self.detail()
@@ -545,18 +417,3 @@ class LinearIssueView(Horizontal, HostedView):
                 self.panel.open_target(value)
 
         self.app.push_screen(picker, picked)
-
-    def action_show_trail(self) -> None:
-        colors = self.panel.status_colors()
-        accent = self.panel.accent()
-        root_label = str(self.panel.trail.root)
-        picker = trail_picker(self.panel.trail.visits, root_label, colors, accent)
-        self.app.push_screen(picker, self._trail_picked)
-
-    def _trail_picked(self, value: object | None) -> None:
-        if not isinstance(value, int):
-            return
-        self.panel.go_back_to(value)
-
-    def action_back(self) -> None:
-        self.panel.go_back()

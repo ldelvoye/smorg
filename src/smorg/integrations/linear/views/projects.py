@@ -19,7 +19,8 @@ from smorg.integrations.linear.glyphs import (
 )
 from smorg.integrations.linear.source import Milestone, Project
 from smorg.integrations.linear.views import LinearView
-from smorg.shell.cards import format_card, format_card_title, format_marks
+from smorg.integrations.linear.views.groups import format_group_title, status_runs
+from smorg.shell.cards import format_card, format_marks
 from smorg.shell.cursor import clamp_cursor, step_cursor
 from smorg.shell.format import plain_lines, truncating
 from smorg.shell.terminal_palette import StatusColors
@@ -53,7 +54,7 @@ def _ordered(projects: tuple[Project, ...]) -> tuple[Project, ...]:
     return tuple(sorted(projects, key=key))
 
 
-def _format_milestone_row(milestone: Milestone, accent: str) -> Text:
+def format_milestone_row(milestone: Milestone, accent: str) -> Text:
     row = Text(_MILESTONE_INDENT)
     row.append_text(format_progress_bar(milestone.progress, accent))
     percent = f"{milestone.progress}%".rjust(_PERCENT_WIDTH + 1)
@@ -89,19 +90,6 @@ def _format_title_row(project: Project, selected: bool, colors: StatusColors, ac
         meta_text = " · ".join(meta)
         row.append(f"  {meta_text}", style="dim")
     return truncating(row)
-
-
-def _project_groups(projects: tuple[Project, ...]) -> list[tuple[str, str, list[Project]]]:
-    groups: list[tuple[str, str, list[Project]]] = []
-    current_status = ""
-    current_members: list[Project] = []
-    for project in projects:
-        if project.status != current_status:
-            current_status = project.status
-            current_members = []
-            groups.append((project.status, project.status_type, current_members))
-        current_members.append(project)
-    return groups
 
 
 class LinearProjects(GatedBodyView["LinearPanel"]):
@@ -161,16 +149,11 @@ class LinearProjects(GatedBodyView["LinearPanel"]):
         colors = self.panel.status_colors()
         accent = self.panel.accent()
         parts: list[RenderableType] = []
-        for index, (status, status_type, members) in enumerate(_project_groups(projects)):
+        for index, (status, status_type, members) in enumerate(status_runs(projects)):
             if index > 0:
                 parts.append(Text())
             glyph = project_glyph(status_type)
-            color = status_color(status, status_type, colors, accent)
-            if color == "dim":
-                tint = ""
-            else:
-                tint = color
-            title = format_card_title(f"{glyph} {status} ({len(members)})", tint)
+            title = format_group_title(glyph, status, status_type, len(members), colors, accent)
             body: list[RenderableType] = []
             for member in members:
                 if body:
@@ -178,7 +161,7 @@ class LinearProjects(GatedBodyView["LinearPanel"]):
                 body.append(_format_title_row(member, member is selected, colors, accent))
                 if member.milestones:
                     for milestone in member.milestones:
-                        body.append(_format_milestone_row(milestone, accent))
+                        body.append(format_milestone_row(milestone, accent))
                 else:
                     body.append(Text(f"{_MILESTONE_INDENT}no milestones", style="dim"))
             parts.append(format_card(title, body))

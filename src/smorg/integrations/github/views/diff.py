@@ -289,12 +289,24 @@ class GitHubDiffView(Vertical, HostedView):
             return raw
         return None
 
+    def _diff_for(self, request: DiffRequest) -> PullRequestDiff | None:
+        raw = self.panel.detail_for(request)
+        if not isinstance(raw, PullRequestDiff):
+            return None
+        return raw
+
+    def _shown_diff(self) -> PullRequestDiff | None:
+        request = self.panel.viewed_diff
+        if request is None:
+            return None
+        return self._diff_for(request)
+
     def _diff(self) -> PullRequestDiff | None:
         request = self.panel.viewed_diff
         if request is None:
             return None
-        raw = self.panel.detail_for(request)
-        if not isinstance(raw, PullRequestDiff):
+        raw = self._diff_for(request)
+        if raw is None:
             return None
         changed = self._sync_selection(request, raw.files)
         if changed:
@@ -314,7 +326,7 @@ class GitHubDiffView(Vertical, HostedView):
         return self.selected_index != previous
 
     def _selected_overflow(self) -> int:
-        diff = self._diff()
+        diff = self._shown_diff()
         if diff is None or not diff.files:
             return 0
         file = diff.files[self.selected_index]

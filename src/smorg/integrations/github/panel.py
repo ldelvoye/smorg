@@ -148,12 +148,6 @@ class GitHubPanel(ViewHostPanel[GitHubView]):
     def unseen_count(self) -> int:
         return self.unseen_pr_count() + self.unseen_branch_count()
 
-    def mark_all_seen(self) -> None:
-        """Mark every seen-participating item seen and persist the stamps."""
-        self.seen.mark_all_seen(self.integration_id, self.seen_items())
-        self._save_seen()
-        self.refresh()
-
     def selected_item(self) -> PullRequest | PushedBranch | None:
         if self.active_view is GitHubView.MENU:
             return None

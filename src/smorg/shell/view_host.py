@@ -30,6 +30,12 @@ class HostedView(Widget):
         """Repaint whatever the view draws from its panel's state."""
         raise NotImplementedError
 
+    def fetch_started(self) -> None:
+        """A fetch for the panel began; the landing view may show it. The base shows none."""
+
+    def fetch_finished(self) -> None:
+        """The fetch ended; overridden alongside fetch_started."""
+
 
 class GatedBodyView[P: Panel](GutteredScroll, HostedView):
     """A hosted view that is one scrolling body: render_view() while the panel is READY,
@@ -115,6 +121,7 @@ class ViewHostPanel[V: Enum](Panel):
     def __init__(self, landing: V) -> None:
         super().__init__()
         self.active_view = landing
+        self.landing = landing
 
     def view_classes(self) -> dict[V, type[HostedView]]:
         """Each view and the widget class that draws it; every host overrides this."""
@@ -143,6 +150,20 @@ class ViewHostPanel[V: Enum](Panel):
     def active_widget(self) -> HostedView:
         view_class = self.view_classes()[self.active_view]
         return self.query_one(view_class)
+
+    def landing_widget(self) -> HostedView:
+        view_class = self.view_classes()[self.landing]
+        return self.query_one(view_class)
+
+    def fetch_started(self) -> None:
+        if not self.is_mounted:
+            return
+        self.landing_widget().fetch_started()
+
+    def fetch_finished(self) -> None:
+        if not self.is_mounted:
+            return
+        self.landing_widget().fetch_finished()
 
     def _sync_view_display(self) -> None:
         shown = self.views_shown()
