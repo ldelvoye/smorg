@@ -24,12 +24,13 @@
 
 ### Spotify
 
-- `add to queue` and `play now` features (need write access)
+- Allow users to add songs to playlists
 
 
 ## General capabilities
 
-- Restricted write permissions
+- Restricted write permissions (Spotify REMOTE actions ship ahead of this; the
+  shell's credential-worker message is the seam to wrap)
 - Enable drop-in self-coded plugins
 
 

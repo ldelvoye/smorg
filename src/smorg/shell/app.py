@@ -448,6 +448,52 @@ class SmorgApp(App[None]):
         if self.active_tab:
             self.fetch_detail(self.active_tab, message.panel, message.item)
 
+    def on_panel_credential_work_requested(self, message: Panel.CredentialWorkRequested) -> None:
+        if self.active_tab:
+            self.run_with_credentials(self.active_tab, message)
+
+    @work(thread=True)
+    def run_with_credentials(
+        self, integration_id: str, message: Panel.CredentialWorkRequested
+    ) -> None:
+        """Resolve credentials for `integration_id` and run message.work off the UI thread."""
+        try:
+            integration = get_integration(integration_id)
+        except UnknownIntegration:
+            self.call_from_thread(message.on_error, "not connected")
+            return
+        try:
+            path, client_id = resolve_connection(
+                integration.manifest, self._tab_configs.get(integration_id)
+            )
+        except ValueError as error:
+            self.call_from_thread(message.on_error, str(error))
+            return
+        try:
+            with httpx.Client(timeout=30) as http:
+                credentials = credentials_for(integration_id, path, client_id, http)
+                if credentials is None:
+                    self.call_from_thread(message.on_error, "not connected")
+                    return
+                result = message.work(credentials, http)
+        except (CredentialStoreError, IntegrationError) as error:
+            self.call_from_thread(message.on_error, _format_fetch_error(error, integration_id))
+            return
+        self.call_from_thread(self._credential_work_succeeded, integration_id, message, result)
+
+    def _credential_work_succeeded(
+        self,
+        integration_id: str,
+        message: Panel.CredentialWorkRequested,
+        result: object,
+    ) -> None:
+        message.on_success(result)
+        if not message.refresh_on_success:
+            return
+        panel = self._panel_of(integration_id)
+        if panel is not None:
+            self.refresh_tab(integration_id, panel, force=True)
+
     @work(thread=True)
     def fetch_detail(self, integration_id: str, panel: Panel, item: Item) -> None:
         """Fetch one item's detail off the UI thread; results and errors land in the panel's

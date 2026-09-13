@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from datetime import datetime
 from enum import StrEnum
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from rich.console import RenderableType
 from rich.text import Text
@@ -25,6 +25,11 @@ from smorg.core.contract import Item
 from smorg.core.state import SeenState
 from smorg.shell.refresh_indicator import RefreshIndicator
 from smorg.shell.terminal_palette import StatusColors, status_colors, widget_background
+
+if TYPE_CHECKING:
+    import httpx
+
+    from smorg.auth.store import Credentials
 
 
 class PanelState(StrEnum):
@@ -113,6 +118,28 @@ class Panel(Vertical):
             super().__init__()
             self.panel = panel
             self.item = item
+
+    class CredentialWorkRequested(Message):
+        """Ask the shell to run `work(credentials, http)` off the UI thread.
+
+        Plan B can wrap this with confirmations / opt-in write scopes; call sites stay the same.
+        """
+
+        def __init__(
+            self,
+            panel: Panel,
+            work: Callable[[Credentials, httpx.Client], object],
+            on_success: Callable[[object], None],
+            on_error: Callable[[str], None],
+            *,
+            refresh_on_success: bool = True,
+        ) -> None:
+            super().__init__()
+            self.panel = panel
+            self.work = work
+            self.on_success = on_success
+            self.on_error = on_error
+            self.refresh_on_success = refresh_on_success
 
     DEFAULT_CSS = """
     Panel > #body { height: 1fr; }

@@ -24,7 +24,8 @@ class ActionClass(StrEnum):
 
     LOCAL -> our own state
     LAUNCH -> browser or clipboard
-    REMOTE -> API (not implemented yet)
+    REMOTE -> API mutation (shell runs it via CredentialWorkRequested; a general
+    write-permission gate is still ahead)
     """
 
     LOCAL = "local"
