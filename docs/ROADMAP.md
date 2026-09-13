@@ -24,7 +24,7 @@
 
 ### Spotify
 
-- (none currently)
+- Allow users to add songs to playlists
 
 
 ## General capabilities
