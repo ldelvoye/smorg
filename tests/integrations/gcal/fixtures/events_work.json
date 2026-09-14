@@ -1,0 +1,32 @@
+{
+  "items": [
+    {"id": "standup_20260914", "status": "confirmed", "summary": "Infra standup",
+     "htmlLink": "https://www.google.com/calendar/event?eid=standup", "updated": "2026-09-10T08:00:00.000Z",
+     "start": {"dateTime": "2026-09-14T12:00:00-04:00", "timeZone": "America/Toronto"},
+     "end": {"dateTime": "2026-09-14T12:30:00-04:00", "timeZone": "America/Toronto"},
+     "recurringEventId": "standup", "hangoutLink": "https://meet.google.com/abc-defg-hij",
+     "organizer": {"email": "erol@example.com", "displayName": "Erol Schmidt"},
+     "attendees": [
+       {"email": "erol@example.com", "displayName": "Erol Schmidt", "organizer": true, "responseStatus": "accepted"},
+       {"email": "lucas@example.com", "self": true, "responseStatus": "needsAction"}
+     ],
+     "description": "<b>Agenda</b><br>- mocks<br>- landing",
+     "attachments": [{"title": "notes.pdf", "fileUrl": "https://drive.google.com/x"}],
+     "eventType": "default"},
+    {"id": "office_20260914", "status": "confirmed", "summary": "Office",
+     "htmlLink": "https://www.google.com/calendar/event?eid=office", "updated": "2026-09-01T08:00:00.000Z",
+     "start": {"date": "2026-09-14"}, "end": {"date": "2026-09-15"},
+     "eventType": "workingLocation", "workingLocationProperties": {"type": "officeLocation"}},
+    {"id": "declined_1", "status": "confirmed", "summary": "Skip me",
+     "htmlLink": "https://www.google.com/calendar/event?eid=declined", "updated": "2026-09-01T08:00:00.000Z",
+     "start": {"dateTime": "2026-09-15T10:00:00-07:00"}, "end": {"dateTime": "2026-09-15T11:00:00-07:00"},
+     "attendees": [{"email": "lucas@example.com", "self": true, "responseStatus": "declined"}],
+     "eventType": "default"},
+    {"id": "cancelled_1", "status": "cancelled",
+     "start": {"dateTime": "2026-09-15T10:00:00-07:00"}, "end": {"dateTime": "2026-09-15T11:00:00-07:00"}},
+    {"id": "dentist_1", "status": "confirmed",
+     "htmlLink": "https://www.google.com/calendar/event?eid=dentist", "updated": "2026-09-01T08:00:00.000Z",
+     "start": {"dateTime": "2026-09-14T16:00:00-07:00"}, "end": {"dateTime": "2026-09-14T16:45:00-07:00"},
+     "location": "Bay Dental, 3rd Ave", "eventType": "default"}
+  ]
+}

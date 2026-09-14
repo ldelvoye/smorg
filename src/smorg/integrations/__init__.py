@@ -8,9 +8,10 @@ rather than half-working.
 from __future__ import annotations
 
 from smorg.core.contract import Integration
-from smorg.integrations import github, linear, spotify
+from smorg.integrations import gcal, github, linear, spotify
 
 INTEGRATIONS: tuple[Integration, ...] = (
+    gcal.INTEGRATION,
     github.INTEGRATION,
     linear.INTEGRATION,
     spotify.INTEGRATION,

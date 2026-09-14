@@ -1,0 +1,12 @@
+{
+  "items": [
+    {"id": "lucas@example.com", "summary": "Work", "backgroundColor": "#9fe1e7",
+     "accessRole": "owner", "selected": true, "primary": true},
+    {"id": "c_team@group.calendar.google.com", "summary": "Infra team",
+     "backgroundColor": "#b99aff", "accessRole": "owner", "selected": true},
+    {"id": "en.usa#holiday@group.v.calendar.google.com", "summary": "US Holidays",
+     "backgroundColor": "#16a765", "accessRole": "reader", "selected": true},
+    {"id": "ignored@group.calendar.google.com", "summary": "Hidden",
+     "backgroundColor": "#000000", "accessRole": "reader", "selected": false}
+  ]
+}
