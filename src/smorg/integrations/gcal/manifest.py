@@ -11,7 +11,7 @@ import httpx
 
 from smorg.auth.oauth import BundledProvider, OAuthMethod, ServerMetadata
 from smorg.auth.store import Credentials
-from smorg.core.contract import AuthPath, Item, Manifest
+from smorg.core.contract import Action, ActionClass, AuthPath, Item, Manifest
 from smorg.integrations.gcal.panel import CalendarPanel
 from smorg.integrations.gcal.source import fetch
 
@@ -38,7 +38,12 @@ MANIFEST = Manifest(
     display_name="Google Calendar",
     connections=(AuthPath(id="oauth", method=METHOD),),
     stale_after=timedelta(minutes=5),
-    actions=(),
+    actions=(
+        Action(
+            id="open", label="Open in Google Calendar", key="o", action_class=ActionClass.LAUNCH
+        ),
+        Action(id="today", label="Jump to today", key="t", action_class=ActionClass.LOCAL),
+    ),
 )
 
 

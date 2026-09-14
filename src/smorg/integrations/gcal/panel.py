@@ -18,6 +18,7 @@ from smorg.integrations.gcal.source import (
     window_for,
 )
 from smorg.integrations.gcal.views import CalendarView
+from smorg.integrations.gcal.views.day import CalendarDay
 from smorg.integrations.gcal.views.menu import CalendarMenu
 from smorg.shell.animation import FrameClock
 from smorg.shell.view_host import HostedView, ViewHostPanel
@@ -41,9 +42,10 @@ class CalendarPanel(ViewHostPanel[CalendarView]):
 
     def compose(self) -> ComposeResult:
         yield CalendarMenu(self)
+        yield CalendarDay(self)
 
     def view_classes(self) -> dict[CalendarView, type[HostedView]]:
-        return {CalendarView.MENU: CalendarMenu}
+        return {CalendarView.MENU: CalendarMenu, CalendarView.DAY: CalendarDay}
 
     def on_mount(self) -> None:
         super().on_mount()
@@ -137,6 +139,9 @@ class CalendarPanel(ViewHostPanel[CalendarView]):
         return tuple(pending)
 
     def open_event(self, event: Event, return_view: CalendarView) -> None:
+        if CalendarView.EVENT not in self.view_classes():
+            self.notify("coming in the next milestone")
+            return
         self.viewed = event
         self.return_view = return_view
         self.mark_seen(event)
@@ -152,4 +157,7 @@ class CalendarPanel(ViewHostPanel[CalendarView]):
     def selected_item(self) -> Item | None:
         if self.active_view is CalendarView.EVENT:
             return self.viewed
+        if self.active_view is CalendarView.DAY and self.is_mounted:
+            day_view = self.query_one(CalendarDay)
+            return day_view.selected_item()
         return None
