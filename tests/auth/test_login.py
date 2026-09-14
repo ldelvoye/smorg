@@ -242,3 +242,41 @@ def test_a_static_login_without_a_client_id_raises():
             port=0,
             timeout=10,
         )
+
+
+BUNDLED = oauth.OAuthMethod(
+    provider=oauth.BundledProvider(
+        metadata=oauth.ServerMetadata(
+            authorization_endpoint=METADATA["authorization_endpoint"],
+            token_endpoint=METADATA["token_endpoint"],
+        ),
+        client_id="client-bundled",
+        client_secret="secret-bundled",
+    ),
+    scopes=("read",),
+)
+
+
+def test_a_bundled_login_uses_the_bundled_id_posts_the_secret_and_never_registers(monkeypatch):
+    browser_sending(monkeypatch, "/callback?code=code-1&state={state}")
+    bodies = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/token":
+            bodies.append(urllib.parse.parse_qs(request.content.decode()))
+            return httpx.Response(200, json=TOKEN)
+        raise AssertionError(f"unexpected request to {request.url}")
+
+    client_id, credentials = perform_login(
+        httpx.Client(transport=httpx.MockTransport(handler)),
+        BUNDLED,
+        None,
+        on_authorize_url=lambda url: None,
+        port=0,
+        timeout=10,
+    )
+
+    assert client_id == "client-bundled"
+    assert credentials.access_token == "at-1"
+    assert bodies[0]["client_id"] == ["client-bundled"]
+    assert bodies[0]["client_secret"] == ["secret-bundled"]

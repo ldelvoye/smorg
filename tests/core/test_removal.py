@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -80,6 +81,48 @@ def test_revocation_failure_still_deletes_everything(monkeypatch):
     assert result.revoked is False
     assert get_credentials("linear") is None
     assert load_config().tabs == ()
+
+
+def test_a_bundled_tab_revokes_without_a_recorded_client_id(monkeypatch):
+    bundled = oauth.OAuthMethod(
+        provider=oauth.BundledProvider(
+            metadata=oauth.ServerMetadata(
+                authorization_endpoint="https://accounts.bundled.invalid/authorize",
+                token_endpoint="https://accounts.bundled.invalid/token",
+                revocation_endpoint="https://accounts.bundled.invalid/revoke",
+            ),
+            client_id="client-bundled",
+            client_secret="secret-bundled",
+        ),
+        scopes=("read",),
+    )
+    from smorg.core.contract import AuthPath, Manifest
+
+    manifest = Manifest(
+        id="bundled",
+        display_name="Bundled",
+        connections=(AuthPath(id="oauth", method=bundled),),
+        stale_after=timedelta(minutes=5),
+        actions=(),
+    )
+    monkeypatch.setattr(
+        "smorg.core.removal.get_integration",
+        lambda integration_id: SimpleNamespace(manifest=manifest),
+    )
+    revoked_with = []
+
+    def fake_revoke(method, client_id, credentials):
+        revoked_with.append(client_id)
+        return True
+
+    monkeypatch.setattr("smorg.core.removal.revoke_best_effort", fake_revoke)
+    save_config(Config(tabs=(TabConfig(integration="bundled", connection="oauth"),)))
+    set_credentials("bundled", LIVE)
+
+    result = remove_integration("bundled")
+
+    assert result.revoked is True
+    assert revoked_with == ["client-bundled"]
 
 
 def test_stale_connection_id_skips_revocation_but_removal_completes(monkeypatch):

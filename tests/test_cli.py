@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from smorg.auth.oauth import OAuthMethod, ServerMetadata, StaticProvider
+from smorg.auth.oauth import BundledProvider, OAuthMethod, ServerMetadata, StaticProvider
 from smorg.auth.store import (
     Credentials,
     CredentialStoreError,
@@ -452,3 +452,47 @@ def test_connect_refuses_an_empty_client_id_on_a_static_path(monkeypatch, capsys
     assert "a client id is required" in capsys.readouterr().err
     assert logins == []
     assert load_config().tabs == ()
+
+
+BUNDLED_MANIFEST = Manifest(
+    id="bundled",
+    display_name="Bundled",
+    connections=(
+        AuthPath(
+            id="oauth",
+            method=OAuthMethod(
+                provider=BundledProvider(
+                    metadata=ServerMetadata(
+                        authorization_endpoint="https://accounts.bundled.invalid/authorize",
+                        token_endpoint="https://accounts.bundled.invalid/token",
+                    ),
+                    client_id="client-bundled",
+                    client_secret="secret-bundled",
+                ),
+                scopes=("read",),
+            ),
+        ),
+    ),
+    stale_after=timedelta(minutes=5),
+    actions=(),
+)
+
+
+def test_connect_never_prompts_and_records_no_client_id_on_a_bundled_path(monkeypatch):
+    monkeypatch.setattr(
+        "smorg.cli.get_integration",
+        lambda integration_id: SimpleNamespace(manifest=BUNDLED_MANIFEST),
+    )
+
+    def fake_run_login(client, provider, client_id, **kwargs):
+        return ("client-bundled", LIVE)
+
+    monkeypatch.setattr("smorg.cli.run_login", fake_run_login)
+
+    def refuse_input(prompt=""):
+        raise AssertionError("a bundled connect must not prompt")
+
+    monkeypatch.setattr("builtins.input", refuse_input)
+
+    assert main(["connect", "bundled"]) == 0
+    assert load_config().tabs == (TabConfig(integration="bundled", connection="oauth"),)

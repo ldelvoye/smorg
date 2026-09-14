@@ -100,12 +100,14 @@ def perform_login(
     try:
         redirect_uri = f"http://127.0.0.1:{server.server_port}/callback"
         metadata = oauth.resolve_metadata(client, method)
+        client_id = oauth.client_id_for(method, client_id)
         if client_id is None:
             provider = method.provider
             if isinstance(provider, oauth.StaticProvider):
                 raise oauth.OAuthError(
                     "this provider cannot register clients; connect with a client id"
                 )
+            assert isinstance(provider, oauth.DiscoveredProvider)
             client_id = oauth.register_client(
                 client, metadata, provider, oauth.REGISTERED_REDIRECT_URI
             )
@@ -135,8 +137,15 @@ def perform_login(
         if "error" in received:
             raise oauth.OAuthError(f"authorization was refused: {sanitize_line(received['error'])}")
 
+        client_secret = oauth.client_secret_of(method)
         credentials = oauth.exchange_code(
-            client, metadata, client_id, received["code"], verifier, redirect_uri
+            client,
+            metadata,
+            client_id,
+            received["code"],
+            verifier,
+            redirect_uri,
+            client_secret=client_secret,
         )
         return client_id, credentials
     finally:

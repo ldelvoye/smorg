@@ -66,6 +66,7 @@ def fresh_credentials(
     credentials = get_credentials(integration_id)
     if credentials is None or not _expiring(credentials):
         return credentials
+    client_id = oauth.client_id_for(method, client_id)
     if credentials.refresh_token is None or client_id is None:
         return credentials
     lock = _lock_for(integration_id)
@@ -75,7 +76,10 @@ def fresh_credentials(
             return credentials
         try:
             metadata = oauth.resolve_metadata(http, method)
-            refreshed = oauth.refresh_credentials(http, metadata, client_id, credentials)
+            client_secret = oauth.client_secret_of(method)
+            refreshed = oauth.refresh_credentials(
+                http, metadata, client_id, credentials, client_secret=client_secret
+            )
         except OAuthError as error:
             raise AuthExpired(f"token refresh failed ({error})") from error
         # A store failure here propagates as CredentialStoreError on purpose:
