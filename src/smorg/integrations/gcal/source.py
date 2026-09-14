@@ -277,7 +277,7 @@ def _event_of(raw: dict[str, Any], calendar_id: str, zone: ZoneInfo) -> Event | 
         attendees=attendees,
         organizer=_organizer_of(raw),
         meet_url=_meet_url_of(raw),
-        location=sanitize_line(location, limit=200),
+        location=_optional_line(location, limit=200),
         description=_description_of(raw),
         attachments=_attachments_of(raw),
         recurring="recurringEventId" in raw,
@@ -299,6 +299,14 @@ def _moment_of(raw: dict[str, Any], key: str, zone: ZoneInfo) -> tuple[datetime,
         raise Malformed(f"'{key}.date' was not a date: {day_text!r}") from error
     midnight = datetime.combine(day, datetime.min.time(), tzinfo=zone)
     return midnight, True
+
+
+def _optional_line(value: str, limit: int = 120) -> str:
+    """A sanitized line, or empty when the field was empty; sanitize_line alone would name an
+    absent field "(unspecified)"."""
+    if not value:
+        return ""
+    return sanitize_line(value, limit=limit)
 
 
 def _title_of(raw: dict[str, Any]) -> str:
@@ -331,14 +339,14 @@ def _attendees_of(raw: dict[str, Any]) -> tuple[Attendee, ...]:
         if not isinstance(entry, dict):
             raise Malformed(f"an attendee was {type(entry).__name__}, expected an object")
         raw_email = optional_string(entry, "email")
-        email = sanitize_line(raw_email)
+        email = _optional_line(raw_email)
         name = optional_string(entry, "displayName")
         if not name:
             name = email
         response_status = optional_string(entry, "responseStatus")
         attendees.append(
             Attendee(
-                name=sanitize_line(name),
+                name=_optional_line(name),
                 email=email,
                 response=_RESPONSES.get(response_status, Response.NONE),
                 organizer=entry.get("organizer") is True,
@@ -362,7 +370,7 @@ def _organizer_of(raw: dict[str, Any]) -> str:
     name = optional_string(organizer, "displayName")
     if not name:
         name = optional_string(organizer, "email")
-    return sanitize_line(name)
+    return _optional_line(name)
 
 
 def _description_of(raw: dict[str, Any]) -> str:
@@ -383,5 +391,5 @@ def _attachments_of(raw: dict[str, Any]) -> tuple[str, ...]:
         if not isinstance(entry, dict):
             raise Malformed(f"an attachment was {type(entry).__name__}, expected an object")
         raw_title = optional_string(entry, "title")
-        titles.append(sanitize_line(raw_title))
+        titles.append(_optional_line(raw_title))
     return tuple(titles)

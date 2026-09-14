@@ -133,6 +133,7 @@ def test_events_land_in_the_settings_timezone_with_every_field_mapped(server):
     assert standup.description == "Agenda\n- mocks\n- landing"
     assert standup.attachments == ("notes.pdf",)
     assert standup.calendar_id == "lucas@example.com"
+    assert standup.location == ""
 
 
 def test_all_day_events_are_midnight_to_exclusive_midnight_and_keep_their_kind(server):
@@ -157,6 +158,7 @@ def test_declined_and_cancelled_instances_are_dropped_and_untitled_events_are_na
     assert dentist.title == "(no title)"
     assert dentist.my_response is Response.NONE
     assert dentist.location == "Bay Dental, 3rd Ave"
+    assert dentist.organizer == ""
 
 
 def test_a_404_calendar_is_skipped_while_the_others_load(server):
