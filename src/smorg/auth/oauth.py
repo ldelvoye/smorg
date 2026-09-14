@@ -23,6 +23,7 @@ _JsonObject = dict[str, Any]
 __all__ = [
     "REGISTERED_REDIRECT_URI",
     "REGISTRATION_PORT",
+    "BundledProvider",
     "DiscoveredProvider",
     "OAuthError",
     "OAuthMethod",
@@ -30,6 +31,8 @@ __all__ = [
     "StaticProvider",
     "build_authorize_url",
     "callback_port",
+    "client_id_for",
+    "client_secret_of",
     "discover",
     "exchange_code",
     "extra_scopes_warning",
@@ -74,15 +77,38 @@ class StaticProvider:
 
 
 @dataclass(frozen=True)
+class BundledProvider:
+    """smorg registered the OAuth app itself; the client id and secret ship with the build."""
+
+    metadata: ServerMetadata
+    client_id: str
+    client_secret: str
+
+
+@dataclass(frozen=True)
 class OAuthMethod:
     """Authorize in the browser against provider, requesting scopes."""
 
-    provider: DiscoveredProvider | StaticProvider
+    provider: DiscoveredProvider | StaticProvider | BundledProvider
     scopes: tuple[str, ...]
 
 
 class OAuthError(Exception):
     """A registration, token, or discovery request failed. Never carries a token."""
+
+
+def client_secret_of(method: OAuthMethod) -> str | None:
+    if isinstance(method.provider, BundledProvider):
+        return method.provider.client_secret
+    return None
+
+
+def client_id_for(method: OAuthMethod, recorded: str | None) -> str | None:
+    """The client id a login, refresh, or revocation uses: the build's own for a bundled provider,
+    otherwise whatever config recorded."""
+    if isinstance(method.provider, BundledProvider):
+        return method.provider.client_id
+    return recorded
 
 
 def _json_object(response: httpx.Response, source: str) -> _JsonObject:
@@ -130,7 +156,7 @@ def discover(client: httpx.Client, provider: DiscoveredProvider) -> ServerMetada
 
 
 def resolve_metadata(client: httpx.Client, method: OAuthMethod) -> ServerMetadata:
-    if isinstance(method.provider, StaticProvider):
+    if isinstance(method.provider, StaticProvider | BundledProvider):
         return method.provider.metadata
     return discover(client, method.provider)
 
@@ -166,7 +192,7 @@ def register_client(
 
 def callback_port(method: OAuthMethod) -> int:
     # A hand-registered app pins its redirect URI, so a static provider binds the registered
-    # port exactly; discovered providers accept any loopback port (RFC 8252 §7.3).
+    # port exactly; discovered and bundled providers accept any loopback port (RFC 8252 §7.3).
     if isinstance(method.provider, StaticProvider):
         return REGISTRATION_PORT
     return 0
@@ -240,8 +266,13 @@ def _credentials_from_token_response(
 
 
 def _post_token(
-    client: httpx.Client, metadata: ServerMetadata, form: dict[str, str]
+    client: httpx.Client,
+    metadata: ServerMetadata,
+    form: dict[str, str],
+    client_secret: str | None = None,
 ) -> _JsonObject:
+    if client_secret is not None:
+        form = form | {"client_secret": client_secret}
     # Binds the issued token to the protected resource; omit it and the token
     # carries the wrong audience — rejected later at the API, not here.
     if metadata.resource:
@@ -266,6 +297,7 @@ def exchange_code(
     code: str,
     verifier: str,
     redirect_uri: str,
+    client_secret: str | None = None,
 ) -> Credentials:
     payload = _post_token(
         client,
@@ -277,6 +309,7 @@ def exchange_code(
             "client_id": client_id,
             "code_verifier": verifier,
         },
+        client_secret,
     )
     return _credentials_from_token_response(payload, fallback_refresh=None)
 
@@ -286,6 +319,7 @@ def refresh_credentials(
     metadata: ServerMetadata,
     client_id: str,
     credentials: Credentials,
+    client_secret: str | None = None,
 ) -> Credentials:
     if credentials.refresh_token is None:
         raise OAuthError("no refresh token available; re-run smorg connect")
@@ -297,6 +331,7 @@ def refresh_credentials(
             "refresh_token": credentials.refresh_token,
             "client_id": client_id,
         },
+        client_secret,
     )
     return _credentials_from_token_response(payload, fallback_refresh=credentials.refresh_token)
 

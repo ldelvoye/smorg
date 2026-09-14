@@ -58,15 +58,16 @@ def remove_integration(integration_id: str) -> RemovalResult:
         get_integration(integration_id)
 
     revoked = False
-    if integration is not None and credentials is not None and tab is not None and tab.client_id:
+    if integration is not None and credentials is not None and tab is not None:
         try:
             path = integration.manifest.connection(tab.connection)
         except ValueError:
             path = None  # a stale connection id must not block deletion
 
-        # Only try to revoke OAuth tokens: a pasted token has no provider to ask
         if path is not None and isinstance(path.method, oauth.OAuthMethod):
-            revoked = revoke_best_effort(path.method, tab.client_id, credentials)
+            client_id = oauth.client_id_for(path.method, tab.client_id)
+            if client_id is not None:
+                revoked = revoke_best_effort(path.method, client_id, credentials)
 
     # Credentials before config: dropping the tab first could strand credentials with nothing left
     # pointing at them.

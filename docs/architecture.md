@@ -4,7 +4,7 @@ smorg is a keyboard-driven terminal dashboard: each connected integration is a
 tab, nothing is enabled by default, and the app is read-plus-safe-actions — it
 shows what's on your plate and opens things, it never writes to a service.
 
-This document explains the load-bearing decisions. How to *add* an integration
+This document explains the load-bearing decisions. How to _add_ an integration
 is covered in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Three layers, two seams
@@ -65,15 +65,14 @@ easiest way to misread this design:
 The current integrations occupy diagonal corners, which makes the two axes
 look like one:
 
-|                  | MCP transport | REST transport |
-| ---------------- | ------------- | -------------- |
-| **OAuth**        | Linear        | —              |
-| **Pasted token** | —             | GitHub         |
+|                  | MCP transport | REST transport           |
+| ---------------- | ------------- | ------------------------ |
+| **OAuth**        | Linear        | Spotify, Google Calendar |
+| **Pasted token** | —             | GitHub                   |
 
-The empty corners are circumstance, not design. OAuth + REST is where any
-classic OAuth provider with no token alternative lands (Spotify is the
-roadmap's first candidate); token + MCP would be an MCP server reached with a
-static bearer token.
+The empty corner is circumstance, not design. OAuth + REST is where a classic
+OAuth provider with no token alternative lands; token + MCP would be an MCP
+server reached with a static bearer token.
 
 ### The auth axis: OAuth where it is cheap, a pasted token where it is not
 
@@ -89,6 +88,16 @@ A provider offering neither is declared as a `StaticProvider`: the manifest
 carries the endpoints, and the user creates the OAuth app themselves and
 pastes its client id. That per-user setup step is worth it only when the
 provider issues no token a user could paste instead.
+
+A provider that offers neither discovery nor a pasteable token, and whose own
+console makes per-user app creation a chore, is declared as a
+`BundledProvider`: smorg's maintainer registers the app once and the client id
+and secret ship with the build, the pattern every desktop calendar client uses.
+The secret is not treated as confidential, since an installed app cannot keep
+one, and it never reaches output. Config records no client id for a bundled
+tab; the id belongs to the build. Google Calendar is the first bundled
+provider: Google rejects a secretless code exchange for a desktop client,
+issues refresh tokens without extra parameters, and accepts any loopback port.
 
 GitHub publishes no metadata document and registers no clients, so an OAuth
 tab there would need an app somebody registered by hand and a client id
@@ -119,7 +128,7 @@ own source module, and why the allowlist is a feature: when a server changes
 its output, exactly one source breaks, its tab shows the failure, and every
 other tab keeps working.
 
-Nothing versions MCP tool output, so every source treats response *shape* as
+Nothing versions MCP tool output, so every source treats response _shape_ as
 untrusted alongside content: a field that should be an object may be a string,
 and that must degrade one tab (`Malformed`), never crash the app. The protocol
 revision we speak, and the upgrade path, live in [mcp-protocol.md](mcp-protocol.md).

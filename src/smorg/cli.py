@@ -57,6 +57,16 @@ def run_login(
     )
 
 
+def _tab_config_for(integration_id: str, path: AuthPath, client_id: str) -> TabConfig:
+    """The config entry a connect records; a bundled client's id belongs to the build, not the
+    config."""
+    if isinstance(path.method, oauth.OAuthMethod) and isinstance(
+        path.method.provider, oauth.BundledProvider
+    ):
+        return TabConfig(integration=integration_id, connection=path.id)
+    return TabConfig(integration=integration_id, client_id=client_id, connection=path.id)
+
+
 def _connect(integration_id: str) -> int:
     try:
         integration = get_integration(integration_id)
@@ -106,7 +116,7 @@ def _connect(integration_id: str) -> int:
         print(str(error), file=sys.stderr)
         return 1
 
-    tab_config = TabConfig(integration=integration_id, client_id=client_id, connection=path.id)
+    tab_config = _tab_config_for(integration_id, path, client_id)
     save_config(add_tab(config, tab_config))
     print(f"connected {integration.manifest.display_name} (scope: {credentials.scope})")
     return 0

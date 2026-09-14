@@ -12,6 +12,7 @@ from textual.widgets._tabs import Underline
 from smorg.auth.login import LoginCancelled
 from smorg.auth.oauth import (
     REGISTERED_REDIRECT_URI,
+    BundledProvider,
     DiscoveredProvider,
     OAuthMethod,
     ServerMetadata,
@@ -891,6 +892,27 @@ def test_an_oauth_path_still_leads_to_the_browser_modal():
     widget = AddableIntegration("widget", "Widget", (OAUTH_PATH,))
 
     assert isinstance(connect_screen_for(widget, OAUTH_PATH), ConnectModal)
+
+
+def test_a_bundled_path_skips_the_client_id_modal():
+    bundled = OAuthMethod(
+        provider=BundledProvider(
+            metadata=ServerMetadata(
+                authorization_endpoint="https://accounts.bundled.invalid/authorize",
+                token_endpoint="https://accounts.bundled.invalid/token",
+            ),
+            client_id="client-bundled",
+            client_secret="secret-bundled",
+        ),
+        scopes=("read",),
+    )
+    path = AuthPath(id="oauth", method=bundled)
+    integration = AddableIntegration("bundled", "Bundled", (path,))
+
+    screen = connect_screen_for(integration, path)
+
+    assert isinstance(screen, ConnectModal)
+    assert screen.client_id == "client-bundled"
 
 
 @pytest.mark.asyncio

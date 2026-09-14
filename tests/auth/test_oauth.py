@@ -9,6 +9,7 @@ import pytest
 
 from smorg.auth.oauth import (
     REGISTRATION_PORT,
+    BundledProvider,
     DiscoveredProvider,
     OAuthError,
     OAuthMethod,
@@ -16,6 +17,8 @@ from smorg.auth.oauth import (
     StaticProvider,
     build_authorize_url,
     callback_port,
+    client_id_for,
+    client_secret_of,
     discover,
     exchange_code,
     extra_scopes_warning,
@@ -348,3 +351,77 @@ def test_register_client_refuses_metadata_without_a_registration_endpoint():
 def test_the_callback_port_is_pinned_only_for_a_static_provider():
     assert callback_port(STATIC) == REGISTRATION_PORT
     assert callback_port(METHOD) == 0
+
+
+BUNDLED = OAuthMethod(
+    provider=BundledProvider(
+        metadata=ServerMetadata(
+            authorization_endpoint="https://accounts.google.com/o/oauth2/v2/auth",
+            token_endpoint="https://oauth2.googleapis.com/token",
+            revocation_endpoint="https://oauth2.googleapis.com/revoke",
+        ),
+        client_id="bundled-id",
+        client_secret="bundled-secret",
+    ),
+    scopes=("https://www.googleapis.com/auth/calendar.readonly",),
+)
+
+
+def test_a_bundled_exchange_and_refresh_post_the_secret_and_a_static_one_does_not(metadata):
+    bodies = []
+
+    def handler(request):
+        bodies.append(parse_qs(request.content.decode()))
+        return httpx.Response(200, json={"access_token": "at-1", "expires_in": 3600})
+
+    bundled_metadata = resolve_metadata(client_returning(handler), BUNDLED)
+    exchange_code(
+        client_returning(handler),
+        bundled_metadata,
+        "bundled-id",
+        "code-1",
+        "v",
+        REDIRECT,
+        client_secret=client_secret_of(BUNDLED),
+    )
+    old = Credentials(access_token="at-0", refresh_token="rt-0", expires_at=None, scope="")
+    refresh_credentials(
+        client_returning(handler),
+        bundled_metadata,
+        "bundled-id",
+        old,
+        client_secret=client_secret_of(BUNDLED),
+    )
+    exchange_code(client_returning(handler), metadata, "client-abc", "code-1", "v", REDIRECT)
+
+    assert bodies[0]["client_secret"] == ["bundled-secret"]
+    assert bodies[1]["client_secret"] == ["bundled-secret"]
+    assert "client_secret" not in bodies[2]
+
+
+def test_client_id_for_prefers_the_bundled_id_over_a_recorded_one():
+    assert client_id_for(BUNDLED, "recorded") == "bundled-id"
+    assert client_id_for(METHOD, "recorded") == "recorded"
+    assert client_id_for(METHOD, None) is None
+
+
+def test_a_bundled_provider_uses_an_ephemeral_callback_port():
+    assert callback_port(BUNDLED) == 0
+
+
+def test_a_bundled_error_never_contains_the_secret():
+    def handler(request):
+        return httpx.Response(400, json={"error": "invalid_request"})
+
+    bundled_metadata = resolve_metadata(client_returning(handler), BUNDLED)
+    with pytest.raises(OAuthError) as excinfo:
+        exchange_code(
+            client_returning(handler),
+            bundled_metadata,
+            "bundled-id",
+            "code-1",
+            "v",
+            REDIRECT,
+            client_secret="bundled-secret",
+        )
+    assert "bundled-secret" not in str(excinfo.value)

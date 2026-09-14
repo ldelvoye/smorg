@@ -17,6 +17,7 @@ from textual.widgets.option_list import Option
 from smorg.auth.login import LoginCancelled, perform_login
 from smorg.auth.oauth import (
     REGISTERED_REDIRECT_URI,
+    BundledProvider,
     OAuthError,
     OAuthMethod,
     StaticProvider,
@@ -140,6 +141,13 @@ def connect_screen_for(integration: AddableIntegration, path: AuthPath) -> Manag
         return TokenModal(integration.integration_id, integration.display_name, path)
     if isinstance(path.method.provider, StaticProvider):
         return ClientIdModal(integration.integration_id, integration.display_name, path)
+    if isinstance(path.method.provider, BundledProvider):
+        return ConnectModal(
+            integration.integration_id,
+            integration.display_name,
+            path,
+            client_id=path.method.provider.client_id,
+        )
     return ConnectModal(integration.integration_id, integration.display_name, path)
 
 
@@ -376,9 +384,12 @@ class ConnectModal(ManagementScreen):
             # nothing could revoke it later.
             revoke_best_effort(self.method, client_id, credentials)
 
-        tab_config = TabConfig(
-            integration=self.integration_id, client_id=client_id, connection=self.path.id
-        )
+        if isinstance(self.method.provider, BundledProvider):
+            tab_config = TabConfig(integration=self.integration_id, connection=self.path.id)
+        else:
+            tab_config = TabConfig(
+                integration=self.integration_id, client_id=client_id, connection=self.path.id
+            )
         warning = extra_scopes_warning(
             self.integration_id, self.display_name, self.method, credentials
         )

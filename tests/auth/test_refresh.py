@@ -1,9 +1,11 @@
 import threading
 from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qs
 
 import httpx
 import pytest
 
+from smorg.auth import oauth
 from smorg.auth.oauth import DiscoveredProvider, OAuthMethod
 from smorg.auth.refresh import EXPIRY_MARGIN, credentials_for, fresh_credentials
 from smorg.auth.store import Credentials, get_credentials, set_credentials
@@ -209,3 +211,40 @@ def test_an_oauth_path_still_refreshes_through_the_same_resolver():
     assert resolved is not None
     assert resolved.access_token == "access-new"
     assert hits != []
+
+
+BUNDLED = oauth.OAuthMethod(
+    provider=oauth.BundledProvider(
+        metadata=oauth.ServerMetadata(
+            authorization_endpoint="https://accounts.google.com/o/oauth2/v2/auth",
+            token_endpoint="https://oauth2.googleapis.com/token",
+        ),
+        client_id="client-bundled",
+        client_secret="secret-bundled",
+    ),
+    scopes=("read",),
+)
+
+
+def test_a_bundled_refresh_uses_the_bundled_id_and_secret_even_with_no_recorded_id():
+    expiring = Credentials(
+        access_token="at-old",
+        refresh_token="rt-1",
+        expires_at=datetime.now(UTC) + timedelta(seconds=10),
+        scope="read",
+    )
+    set_credentials("gcal", expiring)
+    bodies = []
+
+    def handler(request):
+        bodies.append(parse_qs(request.content.decode()))
+        return httpx.Response(200, json={"access_token": "at-new", "expires_in": 3600})
+
+    refreshed = fresh_credentials(
+        "gcal", BUNDLED, None, httpx.Client(transport=httpx.MockTransport(handler))
+    )
+
+    assert refreshed is not None
+    assert refreshed.access_token == "at-new"
+    assert bodies[0]["client_id"] == ["client-bundled"]
+    assert bodies[0]["client_secret"] == ["secret-bundled"]
