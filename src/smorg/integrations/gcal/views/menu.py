@@ -212,7 +212,7 @@ class CalendarMenu(Static, HostedView):
     ]
     can_focus = True
     DEFAULT_CSS = """
-    CalendarMenu { height: 1fr; content-align: center middle; }
+    CalendarMenu { height: 1fr; width: 100%; content-align: left middle; }
     """
 
     def __init__(self, panel: CalendarPanel) -> None:
