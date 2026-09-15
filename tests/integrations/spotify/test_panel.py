@@ -1,10 +1,11 @@
 """Tests for the Spotify panel: one player-state snapshot, no cursor, no seen state."""
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from textual.app import App, ComposeResult
-from textual.widgets import Input
+from textual.widgets import Input, Static
 
 from smorg.integrations.spotify.panel import SpotifyPanel
 from smorg.integrations.spotify.source import (
@@ -15,6 +16,8 @@ from smorg.integrations.spotify.source import (
     Track,
 )
 from smorg.shell.panel import Panel, PanelState
+
+from .test_albumart import png_bytes
 
 NOW = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
 
@@ -205,6 +208,68 @@ def test_plain_output_is_derived_from_the_styled_render():
     panel = panel_with(state(now_playing()))
 
     assert panel.ready_text() == panel.render_ready().plain.strip()
+
+
+# --- Album art ---
+
+
+@pytest.mark.asyncio
+async def test_album_art_docks_on_the_right_when_the_cover_is_present():
+    cover = replace(now_playing(), album_art=png_bytes())
+    panel = panel_with(state(cover))
+    async with _SpotifyPanelHarness(panel).run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+        art = panel.query_one("#album-art", Static)
+        assert art.display is True
+        rendered = panel._render_album_art()
+        assert rendered.plain.strip() != ""
+
+
+@pytest.mark.asyncio
+async def test_the_body_spreads_so_it_ends_level_with_the_cover():
+    cover = replace(now_playing(), album_art=png_bytes())
+    panel = panel_with(state(cover, queue=(track("Feel Good Inc."),), played=last_played()))
+    async with _SpotifyPanelHarness(panel).run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+        art_rows = len(panel._render_album_art().plain.splitlines())
+        body_rows = len(panel.render_ready().plain.splitlines())
+
+    assert art_rows > 1
+    assert body_rows == art_rows
+
+
+@pytest.mark.asyncio
+async def test_the_queue_takes_the_slack_before_the_section_gaps_do():
+    cover = replace(now_playing(), album_art=png_bytes())
+    queued = tuple(track(f"Song {index}") for index in range(1, 21))
+    panel = panel_with(state(cover, queue=queued, played=last_played()))
+    async with _SpotifyPanelHarness(panel).run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+        body = panel.render_ready().plain
+
+    lines = body.splitlines()
+    first_song = next(index for index, line in enumerate(lines) if "Song 1 ·" in line)
+    assert lines[first_song + 1].strip() == ""
+    assert "Song 2 ·" in lines[first_song + 2]
+    # Two blank rows in a row would mean a section gap widened before the songs were spaced.
+    assert "\n\n\n" not in body
+
+
+def test_the_body_stays_compact_when_there_is_no_cover():
+    panel = panel_with(state(now_playing(), queue=(track("Feel Good Inc."),), played=last_played()))
+
+    lines = panel.render_ready().plain.splitlines()
+
+    assert lines.count("") == 3
+
+
+@pytest.mark.asyncio
+async def test_album_art_stays_hidden_when_there_is_no_cover():
+    panel = panel_with(state(now_playing()))
+    async with _SpotifyPanelHarness(panel).run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+        art = panel.query_one("#album-art", Static)
+        assert art.display is False
 
 
 # --- Last played ---

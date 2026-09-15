@@ -45,6 +45,15 @@ EMPTY_SEARCH = {"tracks": {"items": []}, "albums": {"items": []}, "playlists": {
 TRACK_URI = "spotify:track:3n3Ppam7vgaVa1iaRUc9Lp"
 ALBUM_URI = "spotify:album:1XkGORuUX2QGOEIL4EbJKm"
 PLAYLIST_URI = "spotify:playlist:37i9dQZF1DX"
+ART_URL = "https://i.scdn.co/image/hot-fuss"
+ART_BYTES = b"cover-bytes"
+
+
+def player_with_images(*images: dict) -> dict:
+    item = PLAYER["item"]
+    album = item["album"] | {"images": list(images)}
+    return PLAYER | {"item": item | {"album": album}}
+
 
 CREDENTIALS = Credentials(
     access_token="spotify-secret-token",
@@ -74,6 +83,7 @@ class _Server:
         self._resume: tuple[int, object | None] = (204, None)
         self._next: tuple[int, object | None] = (204, None)
         self._previous: tuple[int, object | None] = (204, None)
+        self._images: dict[str, tuple[int, bytes]] = {}
 
     def playing(self, payload: dict, status: int = 200) -> None:
         self._player = (status, payload)
@@ -96,6 +106,9 @@ class _Server:
     def search_hits(self, payload: dict, status: int = 200) -> None:
         self._search = (status, payload)
 
+    def image(self, url: str, body: bytes, status: int = 200) -> None:
+        self._images[url] = (status, body)
+
     def play_result(self, status: int = 204, payload: object | None = None) -> None:
         self._play = (status, payload)
 
@@ -110,6 +123,10 @@ class _Server:
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
+        image = self._images.get(str(request.url))
+        if image is not None:
+            status, body = image
+            return httpx.Response(status, content=body)
         path = request.url.path
         if path == "/v1/me/player":
             status, payload = self._player
@@ -280,6 +297,58 @@ def test_an_episode_is_treated_as_nothing_playing(server):
     server.playing(PLAYER | {"currently_playing_type": "episode"})
 
     assert fetch_with(server).now_playing is None
+
+
+# --- Album art ---
+
+
+def test_now_playing_downloads_the_cover_closest_to_300px(server):
+    payload = player_with_images(
+        {"url": "https://i.scdn.co/image/large", "width": 640, "height": 640},
+        {"url": ART_URL, "width": 300, "height": 300},
+        {"url": "https://i.scdn.co/image/tiny", "width": 64, "height": 64},
+    )
+    server.playing(payload)
+    server.image(ART_URL, ART_BYTES)
+
+    now_playing = fetch_with(server).now_playing
+
+    assert now_playing is not None
+    assert now_playing.album_art == ART_BYTES
+    art_urls = [str(request.url) for request in server.requests if request.url.host == "i.scdn.co"]
+    assert art_urls == [ART_URL]
+
+
+def test_a_missing_cover_leaves_album_art_empty_with_no_extra_call(server):
+    server.playing(PLAYER)
+
+    now_playing = fetch_with(server).now_playing
+
+    assert now_playing is not None
+    assert now_playing.album_art is None
+    assert all(request.url.host != "i.scdn.co" for request in server.requests)
+
+
+def test_a_failing_cover_download_degrades_to_no_art_not_an_error(server):
+    payload = player_with_images({"url": ART_URL, "width": 300, "height": 300})
+    server.playing(payload)
+    server.image(ART_URL, b"", status=404)
+
+    now_playing = fetch_with(server).now_playing
+
+    assert now_playing is not None
+    assert now_playing.album_art is None
+
+
+def test_a_non_https_cover_url_is_ignored(server):
+    payload = player_with_images({"url": "http://i.scdn.co/image/hot-fuss", "width": 300})
+    server.playing(payload)
+
+    now_playing = fetch_with(server).now_playing
+
+    assert now_playing is not None
+    assert now_playing.album_art is None
+    assert all(request.url.host != "i.scdn.co" for request in server.requests)
 
 
 # --- Context: what's driving playback ---

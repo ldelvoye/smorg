@@ -10,8 +10,9 @@ from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.widgets import Input
+from textual.widgets import Input, Static
 
+from smorg.integrations.spotify.albumart import image_to_ascii
 from smorg.integrations.spotify.pickers import search_picker
 from smorg.integrations.spotify.source import (
     FALLBACK_URL,
@@ -35,7 +36,7 @@ from smorg.integrations.spotify.source import (
     skip_previous,
 )
 from smorg.shell.format import age
-from smorg.shell.panel import Panel
+from smorg.shell.panel import Panel, ViewBody
 
 _DIM = "dim"
 
@@ -52,6 +53,11 @@ _CONTROL_GAP = "   "
 
 _PLAY_NOW_PLACEHOLDER = "play now — search"
 _ADD_TO_QUEUE_PLACEHOLDER = "add to queue — search"
+
+# Square cover at this cell width is about 32 rows, which sits beside the queue.
+_ART_WIDTH = 64
+# Hide the cover when the tab is too narrow for the queue and the art together.
+_ART_MIN_PANEL_WIDTH = 100
 
 
 class _SearchAction(StrEnum):
@@ -166,9 +172,63 @@ def _format_last_played(last_played: LastPlayed | None) -> list[Text]:
     return lines
 
 
+def _space_rows(rows: list[Text], slack: int) -> list[Text]:
+    """`rows` with a blank row between as many adjacent pairs as `slack` affords, spread evenly."""
+    boundaries = len(rows) - 1
+    if boundaries < 1 or slack < 1:
+        return list(rows)
+    filled = min(slack, boundaries)
+    spaced: list[Text] = []
+    for index, row in enumerate(rows[:-1]):
+        spaced.append(row)
+        # Cumulative split, so a partial slack spreads down the list instead of piling on top.
+        if filled * (index + 1) // boundaries > filled * index // boundaries:
+            spaced.append(Text())
+    spaced.append(rows[-1])
+    return spaced
+
+
+def _spread(sections: list[list[Text]], target_height: int) -> list[Text]:
+    """Sections stacked a blank row apart, the leftover rows shared out to fill `target_height`."""
+    gaps = len(sections) - 1
+    lines: list[Text] = []
+    if gaps < 1:
+        for section in sections:
+            lines.extend(section)
+        return lines
+    rows = sum(len(section) for section in sections)
+    slack = max(target_height - rows - gaps, 0)
+    for index, section in enumerate(sections[:-1]):
+        lines.extend(section)
+        # Cumulative split, so a slack that doesn't divide evenly still lands every row.
+        extra = slack * (index + 1) // gaps - slack * index // gaps
+        lines.extend(Text() for _ in range(1 + extra))
+    lines.extend(sections[-1])
+    return lines
+
+
+def _body_lines(
+    banner: list[Text],
+    queue: list[Text],
+    last_played: list[Text],
+    controls: list[Text],
+    target_height: int,
+) -> list[Text]:
+    """The four sections stacked to fill `target_height`, the queue taking the room it can use
+    before the section gaps widen.
+    """
+    rows = len(banner) + len(queue) + len(last_played) + len(controls)
+    # Three one-row gaps hold the four sections apart before any of the slack is handed out.
+    slack = max(target_height - rows - 3, 0)
+    # "up next" hugs its list, so only the rows under it are spaced.
+    spaced_queue = queue[:1] + _space_rows(queue[1:], slack)
+    return _spread([banner, spaced_queue, last_played, controls], target_height)
+
+
 class SpotifyPanel(Panel):
-    DEFAULT_CSS = """
-    SpotifyPanel > #player-search { dock: bottom; }
+    DEFAULT_CSS = f"""
+    SpotifyPanel > #player-search {{ dock: bottom; }}
+    SpotifyPanel > #album-art {{ dock: right; width: {_ART_WIDTH}; height: auto; padding-left: 2; }}
     """
 
     BINDINGS = [
@@ -187,12 +247,94 @@ class SpotifyPanel(Panel):
         super().__init__()
         self._search_action: _SearchAction | None = None
         self._work_pending = False
+        self._art_render: tuple[bytes, int, Text] | None = None
 
     def compose(self) -> ComposeResult:
         yield from super().compose()
+        album_art = ViewBody(self._render_album_art, id="album-art")
+        album_art.display = False
+        yield album_art
         search_input = Input(id="player-search")
         search_input.display = False
         yield search_input
+
+    def on_mount(self) -> None:
+        self._sync_album_art()
+
+    def on_resize(self, event: events.Resize) -> None:
+        self._sync_album_art()
+
+    def _refresh_body(self, repaint: bool, layout: bool) -> None:
+        super()._refresh_body(repaint, layout)
+        self._sync_album_art()
+
+    def _album_art_bytes(self) -> bytes | None:
+        state = self._state()
+        if state is None or state.now_playing is None:
+            return None
+        return state.now_playing.album_art
+
+    def _art_width(self) -> int:
+        if not self.is_mounted:
+            return _ART_WIDTH
+        width = self.query_one("#album-art", Static).size.width
+        if width > 0:
+            return width
+        return _ART_WIDTH
+
+    def _can_show_art(self) -> bool:
+        if self._album_art_bytes() is None:
+            return False
+        if not self.is_mounted:
+            return True
+        panel_width = self.size.width
+        if panel_width > 0 and panel_width < _ART_MIN_PANEL_WIDTH:
+            return False
+        return True
+
+    def _sync_album_art(self) -> None:
+        if not self.is_mounted:
+            return
+        art = self.query_one("#album-art", Static)
+        art.display = self._can_show_art()
+        art.refresh()
+
+    def _art_text(self) -> Text | None:
+        """The cover as ASCII, cached so the body and the art column share the one render."""
+        data = self._album_art_bytes()
+        if data is None or not self._can_show_art():
+            return None
+        width = self._art_width()
+        cached = self._art_render
+        if cached is not None:
+            cached_data, cached_width, cached_text = cached
+            if cached_width == width and cached_data == data:
+                return cached_text
+        rendered = image_to_ascii(data, width)
+        if rendered is None:
+            return None
+        self._art_render = (data, width, rendered)
+        return rendered
+
+    def _render_album_art(self) -> Text:
+        rendered = self._art_text()
+        if rendered is None:
+            return Text()
+        return rendered
+
+    def _fill_height(self) -> int:
+        """Rows the body spreads over so it ends level with the cover, 0 when there is no cover."""
+        art = self._art_text()
+        if art is None:
+            return 0
+        rows = art.plain.count("\n") + 1
+        if not self.is_mounted:
+            return rows
+        # Never spread past the body's own region: the controls would fall off the bottom.
+        available = self.query_one("#body", Static).size.height
+        if available < 1:
+            return rows
+        return min(rows, available)
 
     def _state(self) -> PlayerState | None:
         if len(self.items) != 1:
@@ -211,17 +353,15 @@ class SpotifyPanel(Panel):
         if state is None:
             lines.append(Text("nothing playing", style=_DIM))
         else:
-            lines.extend(_format_banner(state.now_playing))
-            lines.append(Text())
-            lines.extend(_format_queue(state.queue))
-            lines.append(Text())
-            lines.extend(_format_last_played(state.last_played))
-            lines.append(Text())
             if state.now_playing is None:
                 playing = None
             else:
                 playing = state.now_playing.is_playing
-            lines.extend(_format_controls(state.shuffle, state.repeat, playing))
+            banner = _format_banner(state.now_playing)
+            queue = _format_queue(state.queue)
+            played = _format_last_played(state.last_played)
+            controls = _format_controls(state.shuffle, state.repeat, playing)
+            lines = _body_lines(banner, queue, played, controls, self._fill_height())
         body = Text("\n").join(lines)
         # One row per track: a wrapped row spills into the next row's place and breaks the layout.
         body.no_wrap = True
