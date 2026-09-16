@@ -15,7 +15,7 @@
     "project": "Improve Redis Scalability",
     "projectMilestone": {"id": "m1", "name": "Reduce forever data"},
     "dueDate": "2026-09-30",
-    "estimate": 3,
+    "estimate": {"value": 3, "name": "M"},
     "parentId": "ENG-0",
     "attachments": [
       {"id": "a1", "title": "chore: widen the column", "subtitle": null, "url": "https://github.com/x/y/pull/12"},

@@ -768,7 +768,7 @@ def test_detail_maps_every_property_and_sub_list():
     assert detail.project == "Improve Redis Scalability"
     assert detail.milestone == "Reduce forever data"
     assert detail.due_date == "2026-09-30"
-    assert detail.estimate == "3"
+    assert detail.estimate == "M"
 
     assert (detail.parent.id, detail.parent.title) == ("ENG-0", "the parent epic")
     assert detail.parent.status_type == "started"
@@ -872,15 +872,6 @@ def test_an_unparseable_due_date_is_malformed():
     issue = json.loads(json.dumps(DETAIL["issue"])) | {"dueDate": "next tuesday"}
     with pytest.raises(Malformed):
         issue_detail_with(detail_handler({"issue": issue}))
-
-
-def test_a_fractional_estimate_is_kept_and_a_whole_float_reads_as_an_integer():
-    fractional = json.loads(json.dumps(DETAIL["issue"])) | {"estimate": 3.5}
-    detail = issue_detail_with(detail_handler({"issue": fractional}))
-    assert detail.estimate == "3.5"
-    whole = json.loads(json.dumps(DETAIL["issue"])) | {"estimate": 3.0}
-    detail = issue_detail_with(detail_handler({"issue": whole}))
-    assert detail.estimate == "3"
 
 
 def test_a_pull_request_tag_unwraps_like_an_issue_tag():

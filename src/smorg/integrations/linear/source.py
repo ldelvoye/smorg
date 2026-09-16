@@ -567,12 +567,9 @@ def _estimate_of(raw: dict[str, Any]) -> str:
     estimate = raw.get("estimate")
     if estimate is None:
         return ""
-    if isinstance(estimate, bool) or not isinstance(estimate, (int, float)):
-        raise Malformed(f"'estimate' was {type(estimate).__name__}, expected a number")
-    is_whole = float(estimate).is_integer()
-    if is_whole:
-        return str(int(estimate))
-    return str(estimate)
+    if not isinstance(estimate, dict):
+        raise Malformed(f"'estimate' was {type(estimate).__name__}, expected an object")
+    return optional_string(estimate, "name")
 
 
 def _due_date_of(raw: dict[str, Any]) -> str:
