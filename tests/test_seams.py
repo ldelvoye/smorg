@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-from smorg.core.registry import manifests
+from smorg import integrations
 
 # Anchored to this file, not the working directory: a relative path finds nothing when pytest
 # runs from anywhere else, and every check below then passes having read no source at all.
@@ -40,8 +40,10 @@ def _package_source(integration_id: str) -> str:
 
 
 def test_every_declared_action_key_is_bound():
+    # The allowlist, not the registry: a hidden integration's keys still have to be bound.
     offenders: list[str] = []
-    for manifest in manifests():
+    for entry in integrations.INTEGRATIONS:
+        manifest = entry.manifest
         source = _package_source(manifest.id)
         for action in manifest.actions:
             binding = f'Binding("{action.key}"'

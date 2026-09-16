@@ -44,6 +44,7 @@ MANIFEST = Manifest(
         ),
         Action(id="today", label="Jump to today", key="t", action_class=ActionClass.LOCAL),
     ),
+    experimental=True,
 )
 
 

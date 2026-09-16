@@ -80,7 +80,7 @@ def test_version_flag_omits_dev_on_a_release_build(monkeypatch, capsys):
 
 
 def test_the_allowlist_is_what_this_build_registers():
-    assert known_integration_ids() == ("gcal", "github", "linear", "spotify")
+    assert known_integration_ids() == ("github", "linear", "spotify")
 
 
 def test_connect_rejects_an_unknown_integration(capsys):
