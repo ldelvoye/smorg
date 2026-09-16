@@ -78,6 +78,8 @@ class Manifest:
     connections: tuple[AuthPath, ...]
     stale_after: timedelta
     actions: tuple[Action, ...]
+    # Registered only when SMORG_EXPERIMENTAL names it: a release carries the code, not the tab.
+    experimental: bool = False
 
     def __post_init__(self) -> None:
         keys = [action.key for action in self.actions]

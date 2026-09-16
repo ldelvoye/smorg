@@ -18,6 +18,7 @@ from smorg.core.contract import (
     Unavailable,
 )
 from smorg.core.registry import (
+    EXPERIMENTAL_ENV,
     UnknownIntegration,
     get_integration,
     known_integration_ids,
@@ -39,6 +40,7 @@ def manifest(
     identifier: str = "fake",
     actions: tuple[Action, ...] = (),
     connections: tuple[AuthPath, ...] = DEFAULT_CONNECTIONS,
+    experimental: bool = False,
 ) -> Manifest:
     return Manifest(
         id=identifier,
@@ -46,6 +48,7 @@ def manifest(
         connections=connections,
         stale_after=timedelta(minutes=5),
         actions=actions,
+        experimental=experimental,
     )
 
 
@@ -156,6 +159,20 @@ def test_registry_refuses_two_integrations_sharing_an_id(registered):
     registered(manifest("linear"), manifest("linear"))
     with pytest.raises(ValueError, match="linear"):
         get_integration("linear")
+
+
+def test_an_experimental_integration_is_hidden_until_the_env_var_names_it(registered, monkeypatch):
+    registered(manifest("linear"), manifest("gcal", experimental=True))
+    monkeypatch.delenv(EXPERIMENTAL_ENV, raising=False)
+
+    assert known_integration_ids() == ("linear",)
+    with pytest.raises(UnknownIntegration):
+        get_integration("gcal")
+
+    monkeypatch.setenv(EXPERIMENTAL_ENV, "gcal")
+
+    assert known_integration_ids() == ("gcal", "linear")
+    assert get_integration("gcal").manifest.id == "gcal"
 
 
 def test_manifests_enumerates_every_registered_one_sorted_by_id(registered):

@@ -69,6 +69,8 @@ An integration that outgrows one of these files can turn it into a package of th
 
 **Sandboxed local runs** by pointing `SMORG_CONFIG_DIR` at a scratch directory and setting `SMORG_CREDENTIAL_STORE=file` to run against it instead of the OS Keychain.
 
+**Experimental integrations.** A manifest that sets `experimental=True` is registered only when `SMORG_EXPERIMENTAL` names it, comma-separated: `SMORG_EXPERIMENTAL=gcal smorg`. That lets a release carry an integration that is still being built without offering its tab; anyone else gets the same "not supported" it would get for an unregistered id. Drop the flag when the integration ships.
+
 ## What is expected: code quality, comment quality, test quality
 
 I don't mind slop code (a lot of the core and auth were made with AI). But enforce the following:
