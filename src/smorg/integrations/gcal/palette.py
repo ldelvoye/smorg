@@ -1,4 +1,5 @@
-"""Google's colours, spent sparingly: blue for today, red for whatever wants attention."""
+"""Google's colours, spent sparingly, and the breathing rhythm the dots and the selected chip
+share."""
 
 from __future__ import annotations
 
@@ -8,3 +9,6 @@ RED = "#ea4335"
 YELLOW = "#fbbc04"
 GREEN = "#34a853"
 BRAND_DOTS = (BRAND_BLUE, RED, YELLOW, GREEN)
+
+BREATH_FPS = 10
+BREATH_SECONDS = 1.6
