@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from rich.console import Group, RenderableType
+from rich.style import Style
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -15,14 +16,14 @@ from textual.containers import Vertical, VerticalScroll
 from textual.geometry import Region, Spacing
 from textual.widgets import Static
 
-from smorg.integrations.gcal.chips import FALLBACK_COLOR, format_chip, format_markers
+from smorg.integrations.gcal.chips import FALLBACK_COLOR, format_chip, format_markers, pulsed_fill
 from smorg.integrations.gcal.footer import format_footer
 from smorg.integrations.gcal.header import format_day_header
-from smorg.integrations.gcal.palette import RED
+from smorg.integrations.gcal.palette import BREATH_FPS, RED
 from smorg.integrations.gcal.ruler import Layout, Placed, lay_out
 from smorg.integrations.gcal.source import Event
 from smorg.integrations.gcal.views import CalendarView
-from smorg.shell.cards import SELECTED_MARK
+from smorg.shell.animation import FrameClock
 from smorg.shell.cursor import clamp_cursor, step_cursor
 from smorg.shell.format import PLAIN_WIDTH, plain_lines
 from smorg.shell.panel import GutteredScroll, PanelState, ViewBody
@@ -57,24 +58,101 @@ def _chip_text(placed: Placed, row_offset: int) -> str:
     return ""
 
 
-def _format_gutter(label: str, selected: bool) -> Text:
+def _format_gutter(label: str, label_style: str) -> Text:
     gutter = Text()
-    if selected:
-        gutter.append(SELECTED_MARK, style="bold")
-    else:
-        gutter.append(" ")
-    gutter.append(f" {label:>5} ", style="dim")
+    gutter.append(f"  {label:>5} ", style=label_style)
     gutter.append("│", style="dim")
     return gutter
 
 
-def _format_now_line(now: datetime, width: int) -> Text:
-    line = Text()
-    line.append(f"  {now.strftime('%H:%M')} ", style=f"bold {RED}")
-    line.append("●", style=f"bold {RED}")
-    rule_width = max(0, width - RULER_GUTTER - 1)
-    rule = "─" * rule_width
-    line.append(rule, style=RED)
+def overlay_now_rule(row: Text, width: int) -> Text:
+    """`row` with the red now rule drawn over it: a dot and a rule across every cell, each chip's
+    fill kept underneath."""
+    rule = "─" * max(0, width - 1)
+    overlaid = Text(f"●{rule}", style=row.style)
+    for span in row.spans:
+        if isinstance(span.style, str):
+            span_style = Style.parse(span.style)
+        else:
+            span_style = span.style
+        if span_style.bgcolor is None:
+            continue
+        fill_only = Style(bgcolor=span_style.bgcolor)
+        overlaid.stylize(fill_only, span.start, span.end)
+    overlaid.stylize(f"bold {RED}")
+    return overlaid
+
+
+def format_lane_rows(
+    layout: Layout,
+    content_width: int,
+    colors: dict[str, str],
+    selected_id: str | None,
+    now: datetime,
+    background: str | None = None,
+    elapsed: float = 0.0,
+) -> list[Text]:
+    """One `Text` per slot row: chips laid into lanes, no gutter, no now-line, every row exactly
+    `content_width` cells."""
+    if background is None:
+        row_style = ""
+    else:
+        row_style = f"on {background}"
+    rows: list[Text] = []
+    for row in layout.rows:
+        line = _format_lane_row(
+            layout, row.slot, content_width, colors, selected_id, now, elapsed, row_style
+        )
+        rows.append(line)
+    return rows
+
+
+def _format_lane_row(
+    layout: Layout,
+    slot: int,
+    content_width: int,
+    colors: dict[str, str],
+    selected_id: str | None,
+    now: datetime,
+    elapsed: float,
+    row_style: str,
+) -> Text:
+    occupants = [
+        placed
+        for placed in layout.placed
+        if placed.first_slot <= slot < placed.first_slot + placed.slot_count
+    ]
+    # A base style sits under the chip fills; stylize() afterwards would paint over them.
+    line = Text(style=row_style)
+    if not occupants:
+        line.append(" " * content_width)
+        return line
+    lane_count = max(placed.lane_count for placed in occupants)
+    lane_width = content_width // lane_count
+    lane_fill_width = lane_width - 1
+    lanes = [Text(" " * lane_fill_width)] * lane_count
+    for placed in occupants:
+        text = _chip_text(placed, slot - placed.first_slot)
+        if slot == placed.first_slot:
+            chip_text = Text(text)
+            chip_text.append(" ")
+            chip_text.append_text(format_markers(placed.event))
+            text = chip_text.plain
+        color = colors.get(placed.event.calendar_id, FALLBACK_COLOR)
+        past = placed.event.end <= now
+        selected = placed.event.id == selected_id
+        if selected:
+            fill = pulsed_fill(color, elapsed)
+        else:
+            fill = None
+        lanes[placed.lane] = format_chip(text, lane_width - 1, color, selected, past, fill=fill)
+    for lane in lanes:
+        line.append_text(lane)
+        line.append(" ")
+    filled_width = lane_count * lane_width
+    remainder = content_width - filled_width
+    if remainder > 0:
+        line.append(" " * remainder)
     return line
 
 
@@ -84,47 +162,27 @@ def format_ruler_rows(
     colors: dict[str, str],
     selected_id: str | None,
     now: datetime,
+    elapsed: float = 0.0,
 ) -> list[Text]:
     """The ruler's rows for one day at `width` columns, chips laid into lanes."""
     content_width = max(1, width - RULER_GUTTER)
+    lane_rows = format_lane_rows(layout, content_width, colors, selected_id, now, elapsed=elapsed)
     rows: list[Text] = []
     for index, row in enumerate(layout.rows):
-        occupants = [
-            placed
-            for placed in layout.placed
-            if placed.first_slot <= row.slot < placed.first_slot + placed.slot_count
-        ]
-        selected_here = any(placed.event.id == selected_id for placed in occupants)
-        if row.hour_rule:
-            label = row.time.strftime("%H:%M")
-        else:
-            label = ""
-        line = _format_gutter(label, selected_here)
-        if occupants:
-            lane_count = max(placed.lane_count for placed in occupants)
-            lane_width = content_width // lane_count
-            lane_fill_width = lane_width - 1
-            lanes = [Text(" " * lane_fill_width)] * lane_count
-            for placed in occupants:
-                text = _chip_text(placed, row.slot - placed.first_slot)
-                if row.slot == placed.first_slot:
-                    chip_text = Text(text)
-                    chip_text.append(" ")
-                    chip_text.append_text(format_markers(placed.event))
-                    text = chip_text.plain
-                color = colors.get(placed.event.calendar_id, FALLBACK_COLOR)
-                past = placed.event.end <= now
-                lanes[placed.lane] = format_chip(
-                    text, lane_width - 1, color, placed.event.id == selected_id, past
-                )
-            for lane in lanes:
-                line.append_text(lane)
-                line.append(" ")
-        else:
-            line.append(" " * content_width)
-        rows.append(line)
         if layout.now_row == index:
-            rows.append(_format_now_line(now, width))
+            label = now.strftime("%H:%M")
+            label_style = f"bold {RED}"
+            lane_row = overlay_now_rule(lane_rows[index], content_width)
+        else:
+            if row.hour_rule:
+                label = row.time.strftime("%H:%M")
+            else:
+                label = ""
+            label_style = "dim"
+            lane_row = lane_rows[index]
+        line = _format_gutter(label, label_style)
+        line.append_text(lane_row)
+        rows.append(line)
     return rows
 
 
@@ -142,15 +200,16 @@ def _format_all_day(events: tuple[Event, ...], colors: dict[str, str]) -> Text:
     return strip
 
 
-class _Ruler(GutteredScroll):
+class RulerScroll(GutteredScroll):
     can_focus = False
 
-    def __init__(self, draw: Callable[[], RenderableType], id: str) -> None:
+    def __init__(self, draw: Callable[[], RenderableType], id: str, body_id: str) -> None:
         super().__init__(id=id)
         self._draw = draw
+        self._body_id = body_id
 
     def compose_content(self) -> ComposeResult:
-        yield ViewBody(self._draw, id="day-ruler-body")
+        yield ViewBody(self._draw, id=self._body_id)
 
 
 class CalendarDay(Vertical, HostedView):
@@ -158,10 +217,10 @@ class CalendarDay(Vertical, HostedView):
     BINDINGS = [
         Binding("up", "cursor_up", "select event", show=False),
         Binding("down", "cursor_down", "select event", show=False),
-        Binding("shift+up", "scroll_earlier", "scroll an hour earlier", show=False),
-        Binding("shift+down", "scroll_later", "scroll an hour later", show=False),
-        Binding("left", "previous_day", "previous day", show=False),
-        Binding("right", "next_day", "next day", show=False),
+        Binding("shift+up", "scroll_earlier", "scroll an hour", show=False),
+        Binding("shift+down", "scroll_later", "scroll an hour", show=False),
+        Binding("left", "previous_day", "change day", show=False),
+        Binding("right", "next_day", "change day", show=False),
         Binding("enter", "open_event", "view event", show=False),
         Binding("o", "open_selected", "open in Google Calendar", show=False),
         Binding("t", "today", "jump to today", show=False),
@@ -180,10 +239,12 @@ class CalendarDay(Vertical, HostedView):
         self.panel = panel
         self.cursor = 0
         self._cursor_day: date | None = None
+        self.elapsed = 0.0
+        self.pulse_clock = FrameClock(self, BREATH_FPS, self._tick)
 
     def compose(self) -> ComposeResult:
         yield ViewBody(self._render_header, id="day-header")
-        yield _Ruler(self._render_ruler, id="day-ruler")
+        yield RulerScroll(self._render_ruler, id="day-ruler", body_id="day-ruler-body")
         yield ViewBody(self._render_footer, id="day-footer")
 
     def _timed(self) -> tuple[Event, ...]:
@@ -275,7 +336,7 @@ class CalendarDay(Vertical, HostedView):
         else:
             selected_id = selected.id
         layout = self._layout_for(focused)
-        rows = format_ruler_rows(layout, width, colors, selected_id, now)
+        rows = format_ruler_rows(layout, width, colors, selected_id, now, elapsed=self.elapsed)
         return Group(*rows)
 
     def _render_footer(self) -> RenderableType:
@@ -328,7 +389,7 @@ class CalendarDay(Vertical, HostedView):
     def _scroll_to_anchor(self) -> None:
         if not self.is_mounted:
             return
-        ruler = self.query_one("#day-ruler", _Ruler)
+        ruler = self.query_one("#day-ruler", RulerScroll)
         anchor_row = self._anchor_row()
         viewport_height = ruler.size.height
         third = viewport_height // 3
@@ -351,19 +412,26 @@ class CalendarDay(Vertical, HostedView):
                 break
         if placed_selected is None:
             return
-        first_row = placed_selected.first_slot
-        if layout.now_row is not None and placed_selected.first_slot > layout.now_row:
-            first_row += 1
-        region = Region(0, first_row, 1, placed_selected.slot_count)
-        ruler = self.query_one("#day-ruler", _Ruler)
+        region = Region(0, placed_selected.first_slot, 1, placed_selected.slot_count)
+        ruler = self.query_one("#day-ruler", RulerScroll)
         ruler.scroll_to_region(region, spacing=_SELECTION_SPACING, animate=False)
 
     @property
     def ruler_scroll_y(self) -> float:
         return self.query_one("#day-ruler", VerticalScroll).scroll_y
 
+    def _tick(self, elapsed: float) -> None:
+        self.elapsed = elapsed
+        if self.selected_item() is None:
+            return
+        self.query_one("#day-ruler-body", Static).refresh()
+
     def on_show(self) -> None:
         self.call_after_refresh(self._scroll_to_anchor)
+        self.pulse_clock.start()
+
+    def on_hide(self) -> None:
+        self.pulse_clock.stop()
 
     def _move(self, offset: int) -> None:
         timed = self._timed()
@@ -380,11 +448,11 @@ class CalendarDay(Vertical, HostedView):
         self._move(1)
 
     def action_scroll_earlier(self) -> None:
-        ruler = self.query_one("#day-ruler", _Ruler)
+        ruler = self.query_one("#day-ruler", RulerScroll)
         ruler.scroll_relative(y=-SCROLL_STEP_ROWS, animate=False)
 
     def action_scroll_later(self) -> None:
-        ruler = self.query_one("#day-ruler", _Ruler)
+        ruler = self.query_one("#day-ruler", RulerScroll)
         ruler.scroll_relative(y=SCROLL_STEP_ROWS, animate=False)
 
     def action_previous_day(self) -> None:

@@ -91,8 +91,6 @@ async def test_keys_move_the_selection_and_the_focused_day():
         by_id = {placed.event.id: placed for placed in layout.placed}
         hours = by_id["hours"]
         first_row = hours.first_slot
-        if layout.now_row is not None and hours.first_slot > layout.now_row:
-            first_row += 1
         ruler = view.query_one("#day-ruler")
         ruler_height = ruler.size.height
         scroll_y = view.ruler_scroll_y
