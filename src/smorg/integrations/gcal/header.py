@@ -13,10 +13,11 @@ TODAY_FOLD = "◥"
 
 
 def format_day_header(
-    days: tuple[date, ...], today: date, focused: date, column_width: int
+    days: tuple[date, ...], today: date, focused: date | None, column_width: int
 ) -> tuple[Text, Text]:
     """Two centered rows, one initial and one number per column; today in Google blue with the
-    icon's folded corner at its shoulder, the focused day underlined when it is a different day."""
+    icon's folded corner at its shoulder, `focused` underlined when it is a different day (None
+    when the view marks the focused day another way)."""
     initials = Text()
     numbers = Text()
     for day in days:

@@ -115,6 +115,19 @@ def status_colors(background: RGB | None) -> StatusColors:
     return pick_for_background(_STATUS_DARK, _STATUS_LIGHT, background)
 
 
+def lifted_background(background: RGB | None) -> str:
+    """A hex colour one lift step off the terminal background: lighter on dark terminals,
+    darker on light ones; unknown counts as black."""
+    if background is None:
+        base = BLACK
+    else:
+        base = background
+    step = pick_for_background(_toward_white, _toward_black, base)
+    lifted = step(base)
+    hex_color = f"#{lifted[0]:02x}{lifted[1]:02x}{lifted[2]:02x}"
+    return hex_color
+
+
 def contrast_ratio(one: RGB, other: RGB) -> float:
     """W3C contrast ratio: 1.0 for two identical colors, 21.0 black on white."""
     luminances = (relative_luminance(one), relative_luminance(other))

@@ -15,7 +15,7 @@ from textual.app import RenderResult
 from textual.binding import Binding
 from textual.widgets import Static
 
-from smorg.integrations.gcal.palette import BRAND_DOTS, RED, TODAY_BLUE
+from smorg.integrations.gcal.palette import BRAND_DOTS, BREATH_FPS, BREATH_SECONDS, RED, TODAY_BLUE
 from smorg.integrations.gcal.source import CALENDAR_HOME, Event, EventKind, Response
 from smorg.integrations.gcal.views import CalendarView
 from smorg.shell.animation import FrameClock
@@ -47,8 +47,6 @@ _DIGIT_FONT: dict[str, tuple[str, str, str, str, str]] = {
     "9": ("###", "#.#", "###", "..#", "###"),
 }
 
-_DOTS_FPS = 10
-_BREATH_SECONDS = 1.6
 _DOT_GLYPH = "●"
 
 
@@ -134,7 +132,7 @@ def _format_countdown(event: Event | None, now: datetime) -> list[Text]:
 
 
 def _dot_style(index: int, elapsed: float) -> str:
-    phase = (elapsed / _BREATH_SECONDS + index / 4) % 1.0
+    phase = (elapsed / BREATH_SECONDS + index / 4) % 1.0
     brightness = 0.5 + 0.5 * math.cos(2 * math.pi * phase)
     if brightness > 0.66:
         return "bold"
@@ -220,7 +218,7 @@ class CalendarMenu(Static, HostedView):
         self.panel = panel
         self.cursor = 0
         self.elapsed = 0.0
-        self.dots_clock = FrameClock(self, _DOTS_FPS, self._tick)
+        self.dots_clock = FrameClock(self, BREATH_FPS, self._tick)
 
     def on_show(self) -> None:
         self.dots_clock.start()

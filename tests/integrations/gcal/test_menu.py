@@ -46,8 +46,8 @@ async def test_the_landing_shows_the_date_icon_countdown_dots_and_destinations(m
         toasts: list[str] = []
         monkeypatch.setattr(menu, "notify", lambda message, **kwargs: toasts.append(message))
         await pilot.press("down", "enter")
-        assert panel.active_view is CalendarView.MENU
-        assert toasts == ["coming in the next milestone"]
+        assert panel.active_view is CalendarView.WEEK
+        assert toasts == []
 
 
 @pytest.mark.asyncio

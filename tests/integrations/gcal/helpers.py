@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 
 from smorg.core.contract import Item
 from smorg.core.state import SeenState
@@ -19,6 +20,7 @@ from smorg.integrations.gcal.source import (
     EventKind,
     Response,
 )
+from smorg.shell.format import symbolize_key_display
 from smorg.shell.panel import PanelState
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
@@ -170,3 +172,7 @@ class PanelHarness(App[None]):
 
     def on_mount(self) -> None:
         self._panel.focus()
+
+    def get_key_display(self, binding: Binding) -> str:
+        default_display = super().get_key_display(binding)
+        return symbolize_key_display(default_display)

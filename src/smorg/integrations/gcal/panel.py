@@ -20,6 +20,7 @@ from smorg.integrations.gcal.source import (
 from smorg.integrations.gcal.views import CalendarView
 from smorg.integrations.gcal.views.day import CalendarDay
 from smorg.integrations.gcal.views.menu import CalendarMenu
+from smorg.integrations.gcal.views.week import CalendarWeek
 from smorg.shell.animation import FrameClock
 from smorg.shell.view_host import HostedView, ViewHostPanel
 
@@ -43,9 +44,14 @@ class CalendarPanel(ViewHostPanel[CalendarView]):
     def compose(self) -> ComposeResult:
         yield CalendarMenu(self)
         yield CalendarDay(self)
+        yield CalendarWeek(self)
 
     def view_classes(self) -> dict[CalendarView, type[HostedView]]:
-        return {CalendarView.MENU: CalendarMenu, CalendarView.DAY: CalendarDay}
+        return {
+            CalendarView.MENU: CalendarMenu,
+            CalendarView.DAY: CalendarDay,
+            CalendarView.WEEK: CalendarWeek,
+        }
 
     def on_mount(self) -> None:
         super().on_mount()
@@ -160,4 +166,7 @@ class CalendarPanel(ViewHostPanel[CalendarView]):
         if self.active_view is CalendarView.DAY and self.is_mounted:
             day_view = self.query_one(CalendarDay)
             return day_view.selected_item()
+        if self.active_view is CalendarView.WEEK and self.is_mounted:
+            week_view = self.query_one(CalendarWeek)
+            return week_view.selected_item()
         return None
