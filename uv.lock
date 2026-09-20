@@ -805,7 +805,7 @@ dev = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.28" },
     { name = "keyring", specifier = ">=25.0" },
-    { name = "pillow", specifier = ">=12.3.0" },
+    { name = "pillow", specifier = ">=11.3.0" },
     { name = "pygithub", specifier = ">=2.5" },
     { name = "requests", specifier = ">=2.32" },
     { name = "textual", specifier = ">=1.0" },
