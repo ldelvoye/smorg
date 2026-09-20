@@ -33,6 +33,9 @@ LAST_PLAYED_LIMIT = 1
 # Where "o" opens when nothing is loaded on the player at all.
 FALLBACK_URL = "https://open.spotify.com"
 
+PREFERRED_ART_SIZE = 300
+ART_MAX_BYTES = 2 * 1024 * 1024
+
 
 @dataclass(frozen=True)
 class Track:
@@ -50,6 +53,8 @@ class NowPlaying:
     context_kind: str
     # None when there is nothing to name (autoplay, or a name that could not be resolved).
     context_name: str | None
+    # Cover JPEG/PNG bytes, or None when Spotify omitted images or the download failed.
+    album_art: bytes | None = None
 
 
 @dataclass(frozen=True)
@@ -140,11 +145,13 @@ def _fetch_now_playing(credentials: Credentials, http: httpx.Client) -> NowPlayi
         raise Malformed(f"'item' was {type(item).__name__}, expected an object")
     track = _track_of(item)
     context_kind, context_name = _context_of(payload.get("context"), track, credentials, http)
+    album_art = _album_art_of(item, http)
     return NowPlaying(
         track=track,
         is_playing=_is_playing_of(payload),
         context_kind=context_kind,
         context_name=context_name,
+        album_art=album_art,
     )
 
 
@@ -265,3 +272,54 @@ def _album_name(track: dict[str, Any]) -> str:
     if not isinstance(album, dict):
         raise Malformed(f"'album' was {type(album).__name__}, expected an object")
     return required_string(album, "name")
+
+
+def _album_art_of(track: dict[str, Any], http: httpx.Client) -> bytes | None:
+    """Cover bytes for the now-playing track, or None on any failure — missing art must not
+    break the tab.
+    """
+    url = _album_art_url(track)
+    if url is None:
+        return None
+    return _download_album_art(http, url)
+
+
+def _album_art_url(track: dict[str, Any]) -> str | None:
+    album = track.get("album")
+    if not isinstance(album, dict):
+        return None
+    images = album.get("images")
+    if not isinstance(images, list):
+        return None
+    candidates: list[tuple[int, str]] = []
+    for image in images:
+        if not isinstance(image, dict):
+            continue
+        url = image.get("url")
+        if not isinstance(url, str):
+            continue
+        if urlsplit(url).scheme != "https":
+            continue
+        width = image.get("width")
+        if isinstance(width, int):
+            size = width
+        else:
+            size = 0
+        candidates.append((size, url))
+    if not candidates:
+        return None
+    ranked = sorted(candidates, key=lambda item: (abs(item[0] - PREFERRED_ART_SIZE), -item[0]))
+    return ranked[0][1]
+
+
+def _download_album_art(http: httpx.Client, url: str) -> bytes | None:
+    try:
+        response = http.get(url)
+    except httpx.HTTPError:
+        return None
+    if response.status_code != 200:
+        return None
+    content = response.content
+    if not content or len(content) > ART_MAX_BYTES:
+        return None
+    return content

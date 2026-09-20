@@ -8,8 +8,9 @@ from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.widgets import Input
+from textual.widgets import Input, Static
 
+from smorg.integrations.spotify.albumart import image_to_ascii
 from smorg.integrations.spotify.source import (
     FALLBACK_URL,
     LastPlayed,
@@ -18,7 +19,7 @@ from smorg.integrations.spotify.source import (
     Track,
 )
 from smorg.shell.format import age
-from smorg.shell.panel import Panel
+from smorg.shell.panel import Panel, ViewBody
 
 _DIM = "dim"
 
@@ -33,6 +34,11 @@ _ROW_INDENT = "      "
 
 _PLAY_NOW_PLACEHOLDER = "play now — search (not implemented yet)"
 _ADD_TO_QUEUE_PLACEHOLDER = "add to queue — search (not implemented yet)"
+
+# Square cover at this cell width is about 32 rows, which sits beside the queue.
+_ART_WIDTH = 64
+# Hide the cover when the tab is too narrow for the queue and the art together.
+_ART_MIN_PANEL_WIDTH = 100
 
 
 def _format_artists(artists: tuple[str, ...]) -> str:
@@ -103,8 +109,9 @@ def _format_last_played(last_played: LastPlayed | None) -> list[Text]:
 
 
 class SpotifyPanel(Panel):
-    DEFAULT_CSS = """
-    SpotifyPanel > #player-search { dock: bottom; }
+    DEFAULT_CSS = f"""
+    SpotifyPanel > #player-search {{ dock: bottom; }}
+    SpotifyPanel > #album-art {{ dock: right; width: {_ART_WIDTH}; height: auto; padding-left: 2; }}
     """
 
     BINDINGS = [
@@ -114,11 +121,83 @@ class SpotifyPanel(Panel):
     ]
     can_focus = True
 
+    def __init__(self) -> None:
+        super().__init__()
+        # (bytes, width, rendered) so the last cover is reused until the track or width changes.
+        self._art_render: tuple[bytes, int, Text] | None = None
+
     def compose(self) -> ComposeResult:
         yield from super().compose()
+        album_art = ViewBody(self._render_album_art, id="album-art")
+        album_art.display = False
+        yield album_art
         search = Input(id="player-search")
         search.display = False
         yield search
+
+    def on_mount(self) -> None:
+        self._sync_album_art()
+
+    def on_resize(self, event: events.Resize) -> None:
+        self._sync_album_art()
+
+    def _refresh_body(self, repaint: bool, layout: bool) -> None:
+        super()._refresh_body(repaint, layout)
+        self._sync_album_art()
+
+    def _album_art_bytes(self) -> bytes | None:
+        state = self._state()
+        if state is None or state.now_playing is None:
+            return None
+        return state.now_playing.album_art
+
+    def _art_width(self) -> int:
+        if not self.is_mounted:
+            return _ART_WIDTH
+        width = self.query_one("#album-art", Static).size.width
+        if width > 0:
+            return width
+        return _ART_WIDTH
+
+    def _can_show_art(self) -> bool:
+        if self._album_art_bytes() is None:
+            return False
+        if not self.is_mounted:
+            return True
+        panel_width = self.size.width
+        if panel_width > 0 and panel_width < _ART_MIN_PANEL_WIDTH:
+            return False
+        return True
+
+    def _sync_album_art(self) -> None:
+        if not self.is_mounted:
+            return
+        art = self.query_one("#album-art", Static)
+        art.display = self._can_show_art()
+        art.refresh()
+
+    def _art_text(self) -> Text | None:
+        """The cover as ASCII, cached so a re-render reuses the last paint of the same art."""
+        data = self._album_art_bytes()
+        if data is None or not self._can_show_art():
+            return None
+        width = self._art_width()
+        cached = self._art_render
+        if cached is not None:
+            cached_data, cached_width, cached_text = cached
+            if cached_width == width and cached_data == data:
+                return cached_text
+        rendered = image_to_ascii(data, width)
+        if rendered is None:
+            return None
+        self._art_render = (data, width, rendered)
+        return rendered
+
+    def _render_album_art(self) -> Text:
+        rendered = self._art_text()
+        if rendered is None:
+            return Text()
+        return rendered
 
     def _state(self) -> PlayerState | None:
         if len(self.items) != 1:
