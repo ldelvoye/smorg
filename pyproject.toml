@@ -29,7 +29,7 @@ smorg = "smorg.cli:main"
 dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.9", "pyright>=1.1"]
 
 [build-system]
-requires = ["uv_build>=0.11,<0.13"]
+requires = ["uv_build>=0.11,<0.14"]
 build-backend = "uv_build"
 
 # Pinned so the lockfile resolves against public PyPI regardless of any index
